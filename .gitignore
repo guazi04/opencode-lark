@@ -6,6 +6,7 @@ data/
 *.db-shm
 .env
 opencode-feishu.jsonc
+opencode-lark.jsonc
 .sisyphus/
 *.tgz
 .DS_Store

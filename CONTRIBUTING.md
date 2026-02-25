@@ -1,4 +1,4 @@
-# Contributing to opencode-feishu
+# Contributing to opencode-lark
 
 Thanks for your interest in contributing. This guide covers everything you need to get started.
 
@@ -15,8 +15,8 @@ For architecture details, see [AGENTS.md](./AGENTS.md).
 
 ```bash
 # Clone and install
-git clone <repo-url> opencode-feishu
-cd opencode-feishu
+git clone <repo-url> opencode-lark
+cd opencode-lark
 bun install
 
 # Configure environment
@@ -24,7 +24,7 @@ cp .env.example .env
 # Fill in FEISHU_APP_ID and FEISHU_APP_SECRET
 
 # Configure the app (optional, auto-derived from .env if absent)
-cp opencode-feishu.example.jsonc opencode-feishu.jsonc
+cp opencode-lark.example.jsonc opencode-lark.jsonc
 # Customize as needed
 ```
 

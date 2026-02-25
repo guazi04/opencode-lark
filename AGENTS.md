@@ -1,17 +1,17 @@
-# AGENTS.md — opencode-feishu
+# AGENTS.md — opencode-lark
 
 Architecture guide for contributors. Covers module layout, key abstractions, data flow, and how to extend the system.
 
 ## What This Project Does
 
-`opencode-feishu` bridges Feishu group chats with opencode TUI sessions. Messages sent in Feishu flow into opencode as if typed in the terminal. Agent replies stream back to Feishu as live-updating cards.
+`opencode-lark` bridges Feishu group chats with opencode TUI sessions. Messages sent in Feishu flow into opencode as if typed in the terminal. Agent replies stream back to Feishu as live-updating cards.
 
 ```
 Feishu client
     ↕  WebSocket (long-lived)
 Feishu Open Platform
     ↕  WebSocket / Webhook
-opencode-feishu  (this project)
+opencode-lark  (this project)
     ↕  HTTP API + SSE
 opencode server  (localhost:4096)
     ↕  stdin/stdout
@@ -106,7 +106,7 @@ opencode SSE stream
 
 ## Startup Phases (`src/index.ts`)
 
-1. Load config (`opencode-feishu.jsonc` or env vars)
+1. Load config (`opencode-lark.jsonc` or env vars)
 2. Connect to opencode server (exponential-backoff retry, max 10 attempts)
 3. Init SQLite database
 4. Create shared services (SessionManager, MemoryManager, EventProcessor, StreamingBridge)
@@ -131,7 +131,7 @@ opencode SSE stream
 1. Open `src/cron/cron-service.ts`.
 2. Add your job definition to the cron config schema in `src/types.ts`.
 3. Register the new job inside `CronService.start()` with a cron expression and handler function.
-4. Enable it in `opencode-feishu.jsonc` under the `cron` key.
+4. Enable it in `opencode-lark.jsonc` under the `cron` key.
 
 ### Adding a Heartbeat Check
 
@@ -147,4 +147,4 @@ opencode SSE stream
 | `FEISHU_WEBHOOK_PORT` | no | `3001` | Card action callback port |
 | `OPENCODE_CWD` | no | `process.cwd()` | Override session discovery directory |
 
-See `.env.example` and `opencode-feishu.example.jsonc` for full reference.
+See `.env.example` and `opencode-lark.example.jsonc` for full reference.

@@ -1,10 +1,11 @@
-# opencode-feishu
+# opencode-lark
 
 > Bridge Feishu group chats to opencode TUI sessions with real-time two-way messaging.
 >
 > 将飞书群聊与 opencode TUI session 打通，实现双向实时消息转发。
 
-![CI](https://github.com/USERNAME/opencode-feishu/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/guazi04/opencode-lark/actions/workflows/ci.yml/badge.svg)
+![npm](https://img.shields.io/npm/v/opencode-lark.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
@@ -41,16 +42,108 @@ Feishu client
     ↕  WebSocket
 Feishu Open Platform
     ↕  WebSocket
-opencode-feishu  (this project / 本项目)
+opencode-lark  (this project / 本项目)
     ↕  HTTP API + SSE
 opencode server  (localhost:4096)
     ↕  stdin/stdout
 opencode TUI
 ```
 
-**Inbound (飞书 → TUI):** Feishu sends a message over WebSocket. opencode-feishu normalizes it, resolves the bound session, prepends conversation history, then POSTs to the opencode API. The TUI sees the message immediately.
+**Inbound (飞书 → TUI):** Feishu sends a message over WebSocket. opencode-lark normalizes it, resolves the bound session, prepends conversation history, then POSTs to the opencode API. The TUI sees the message immediately.
 
-**Outbound (TUI → 飞书):** opencode-feishu subscribes to the opencode SSE stream. As the agent produces text, `TextDelta` events accumulate and a debounced card update fires. Once `SessionIdle` arrives, the final card is flushed to Feishu.
+**Outbound (TUI → 飞书):** opencode-lark subscribes to the opencode SSE stream. As the agent produces text, `TextDelta` events accumulate and a debounced card update fires. Once `SessionIdle` arrives, the final card is flushed to Feishu.
+
+---
+
+## Install / 安装
+
+```bash
+# Global install / 全局安装
+npm install -g opencode-lark
+# or / 或
+bun add -g opencode-lark
+```
+
+Or clone and run from source / 或从源码运行:
+
+```bash
+git clone https://github.com/guazi04/opencode-lark.git
+cd opencode-lark
+bun install
+```
+
+---
+
+## Feishu App Setup / 飞书应用配置
+
+This section walks you through creating a Feishu Internal App and configuring the required permissions.
+本节介绍如何创建飞书企业自建应用并配置所需权限。
+
+### 1. Create an Internal App / 创建企业自建应用
+
+1. Open [Feishu Open Platform](https://open.feishu.cn/app) / 打开[飞书开放平台](https://open.feishu.cn/app)
+2. Click **Create App** → **Create Internal App** / 点击**创建应用** → **创建企业自建应用**
+3. Fill in app name and description, then confirm / 填写应用名称和描述后确认
+
+### 2. Enable Bot Capability / 开启机器人能力
+
+Navigate to **App Features → Bot** and enable the bot capability.
+进入**应用功能 → 机器人**，开启机器人功能。
+
+### 3. Configure Permissions / 配置权限
+
+Navigate to **Development Config → Permissions & Scopes** and add the following:
+进入**开发配置 → 权限管理**，开通以下权限：
+
+| Permission / 权限 | Scope Identifier / 权限标识 | Purpose / 用途 | Required / 必需 |
+|---|---|---|---|
+| 获取与发送单聊、群组消息 | `im:message` | Send messages & update cards / 发送消息、更新卡片 | ✅ |
+| 获取用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` | Receive direct messages / 接收私聊消息 | ✅ |
+| 获取群组中所有消息 | `im:message.group_msg:readonly` | Receive group messages / 接收群聊消息 | ✅ |
+| 获取与上传图片或文件资源 | `im:resource` | Handle message attachments / 处理消息附件 | ✅ |
+
+### 4. Subscribe to Events / 订阅事件
+
+Navigate to **Development Config → Event Subscriptions** and:
+进入**开发配置 → 事件订阅**，操作如下：
+
+1. Select **Long Connection** (WebSocket) mode — no public IP required
+   选择**长连接**模式 — 无需公网 IP
+2. Add the following event:
+   添加以下事件：
+
+| Event Name / 事件名称 | Event Identifier / 事件标识 | Purpose / 用途 | Required / 必需 |
+|---|---|---|---|
+| 接收消息 | `im.message.receive_v1` | Receive all user messages / 接收用户消息 | ✅ |
+
+> **Optional / 可选**: For interactive card buttons (e.g. card action callbacks), you may also configure a webhook server URL under **Card Engine** settings. Set `FEISHU_WEBHOOK_PORT` and expose it via a reverse proxy.
+> **可选**：如需卡片按钮交互，可在卡片引擎配置中填写回调地址，并通过反向代理暴露 `FEISHU_WEBHOOK_PORT`。
+
+### 5. Get Credentials / 获取凭证
+
+Navigate to **Credentials & Basic Info** to find:
+进入**凭证与基础信息**找到：
+
+- **App ID** → set as `FEISHU_APP_ID`
+- **App Secret** → set as `FEISHU_APP_SECRET`
+
+### 6. Publish the App / 发布应用
+
+Navigate to **App Release → Version Management & Release**, create a version and submit for review.
+After approval, add the bot to your workspace.
+进入**应用发布 → 版本管理与发布**，创建版本并提交审核。审核通过后，将机器人添加到工作区。
+
+> **Note**: Internal apps in trial status can be used by app administrators immediately without review for testing.
+> **注意**：测试阶段，应用管理员可直接使用，无需等待审核通过。
+
+### Troubleshooting / 故障排除
+
+| Symptom / 现象 | Likely Cause / 可能原因 | Fix / 解决方案 |
+|---|---|---|
+| Bot doesn't receive messages / 机器人收不到消息 | WebSocket not enabled or wrong subscription / 未开启长连接或事件未订阅 | Check event subscription, ensure Long Connection mode is selected / 检查事件订阅，确认选择长连接模式 |
+| "Invalid App ID or Secret" / 凭证错误 | Wrong credentials in .env / .env 中凭证有误 | Double-check App ID and App Secret from Feishu console / 从飞书控制台重新确认凭证 |
+| Messages received but no reply / 收到消息但无回复 | opencode server not running / opencode server 未启动 | Ensure `opencode` TUI is running before starting opencode-lark / 确保先启动 opencode TUI |
+| Card not updating in real-time / 卡片不实时更新 | Rate limit or debounce delay / 频率限制或防抖延迟 | Normal behavior — updates are debounced to stay within Feishu rate limits / 正常行为，防抖处理避免触发频率限制 |
 
 ---
 
@@ -70,8 +163,8 @@ opencode TUI
 **1. Clone the repo / 克隆仓库**
 
 ```bash
-git clone https://github.com/USERNAME/opencode-feishu.git
-cd opencode-feishu
+git clone https://github.com/guazi04/opencode-lark.git
+cd opencode-lark
 ```
 
 **2. Install dependencies / 安装依赖**
@@ -101,9 +194,15 @@ opencode
 The TUI starts an HTTP server on port 4096 automatically (increments if that port is taken).
 TUI 启动后自动在 4096 端口运行 HTTP server，端口被占用时自动递增。
 
-**5. Start opencode-feishu / 启动 opencode-feishu**
+**5. Start opencode-lark / 启动 opencode-lark**
 
-In a second terminal:
+In a second terminal, run from global install:
+
+```bash
+opencode-lark
+```
+
+Or from source with watch mode / 或从源码以开发模式启动:
 
 ```bash
 bun run dev
@@ -139,9 +238,11 @@ After that, Feishu and the TUI share a live two-way channel.
 
 ### JSONC Config / JSONC 配置文件
 
-`opencode-feishu.jsonc` (gitignored; copy from `opencode-feishu.example.jsonc`):
+`opencode-lark.jsonc` (gitignored; copy from `opencode-lark.example.jsonc`):
+(also supports `opencode-feishu.jsonc` for backward compatibility)
 
 ```jsonc
+// opencode-lark.jsonc
 {
   "feishu": {
     "appId": "${FEISHU_APP_ID}",
@@ -206,4 +307,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on issues, pull requests, 
 
 ## License
 
-[MIT](LICENSE) © 2026 opencode-feishu contributors
+[MIT](LICENSE) © 2026 opencode-lark contributors

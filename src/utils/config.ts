@@ -1,6 +1,6 @@
 /**
  * Zod-validated config loader.
- * Loads from opencode-feishu.jsonc with env var interpolation.
+ * Loads from opencode-lark.jsonc (or opencode-feishu.jsonc for backward compat) with env var interpolation.
  */
 
 import * as fs from "node:fs"
@@ -69,6 +69,8 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
   const searchPaths = configPath
     ? [configPath]
     : [
+        path.resolve("opencode-lark.jsonc"),
+        path.resolve("opencode-lark.json"),
         path.resolve("opencode-feishu.jsonc"),
         path.resolve("opencode-feishu.json"),
       ]

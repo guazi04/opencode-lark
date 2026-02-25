@@ -1,5 +1,5 @@
 /**
- * ChannelPlugin type definitions for opencode-feishu
+ * ChannelPlugin type definitions for opencode-lark
  * Defines the core plugin contract for channel integrations.
  * Inspired by openclaw but independently defined.
  */

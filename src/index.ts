@@ -37,7 +37,7 @@ import { ChannelManager } from "./channel/manager.js"
 import { CronService } from "./cron/cron-service.js"
 import { HeartbeatService } from "./cron/heartbeat.js"
 
-const logger = createLogger("opencode-feishu")
+const logger = createLogger("opencode-lark")
 
 async function main(): Promise<void> {
   // ═══════════════════════════════════════════

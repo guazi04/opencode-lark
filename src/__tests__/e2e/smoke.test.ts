@@ -1,5 +1,5 @@
 /**
- * End-to-end smoke tests for the full opencode-feishu pipeline.
+ * End-to-end smoke tests for the full opencode-lark pipeline.
  *
  * Exercises real module instantiation with fetch-level mocking.
  * 8 scenarios across 2 suites:

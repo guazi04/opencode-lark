@@ -28,7 +28,7 @@ for i in $(seq 1 20); do
   sleep 1
 done
 
-echo "[start] Starting opencode-feishu bot..."
+echo "[start] Starting opencode-lark bot..."
 bun run src/index.ts &
 BOT_PID=$!
 echo "[start] bot PID: $BOT_PID"
