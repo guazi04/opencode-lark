@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+opencode-feishu.jsonc
+.sisyphus/
+*.tgz
+.DS_Store

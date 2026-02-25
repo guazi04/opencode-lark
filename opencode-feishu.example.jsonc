@@ -1,0 +1,43 @@
+{
+  // Feishu application configuration
+  "feishu": {
+    // Feishu Open Platform App ID (env: FEISHU_APP_ID)
+    "appId": "${FEISHU_APP_ID}",
+
+    // Feishu Open Platform App Secret (env: FEISHU_APP_SECRET)
+    "appSecret": "${FEISHU_APP_SECRET}",
+
+    // Event subscription verification token (env: FEISHU_VERIFICATION_TOKEN)
+    "verificationToken": "${FEISHU_VERIFICATION_TOKEN}",
+
+    // Webhook server listening port (default: 3001)
+    "webhookPort": 3001,
+
+    // Encryption key for events (optional)
+    "encryptKey": "${FEISHU_ENCRYPT_KEY}"
+  },
+
+  // Default opencode agent (use "build" for the built-in default)
+  "defaultAgent": "build",
+
+  // Data directory for SQLite database
+  "dataDir": "./data",
+
+  // Progress card update debounce configuration
+  "progress": {
+    "debounceMs": 500,
+    "maxDebounceMs": 3000
+  }
+
+  // Optional: cron jobs configuration
+  // "cron": {
+  //   "jobs": [
+  //     {
+  //       "name": "daily-standup",
+  //       "schedule": "0 9 * * 1-5",
+  //       "prompt": "Good morning! Please provide a daily standup summary.",
+  //       "chatId": "oc_xxxxxxxxxxxxxxxx"
+  //     }
+  //   ]
+  // }
+}
