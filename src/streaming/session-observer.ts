@@ -107,7 +107,7 @@ export function createSessionObserver(
             break
           }
           default:
-            // ToolStateChange, SubtaskDiscovered, ReasoningDelta — ignored
+            // ToolStateChange, SubtaskDiscovered — ignored
             break
         }
       }

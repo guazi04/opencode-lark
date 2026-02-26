@@ -5,7 +5,6 @@ import {
   type TextDelta,
   type ToolStateChange,
   type SubtaskDiscovered,
-  type SessionBusy,
   type SessionIdle,
 } from "./event-processor.js"
 
@@ -410,23 +409,6 @@ describe("EventProcessor", () => {
     })
   })
 
-  describe("SessionBusy", () => {
-    it("extracts SessionBusy from session.status with busy type", () => {
-      const proc = makeProcessor()
-      const result = proc.processEvent({
-        type: "session.status",
-        properties: {
-          sessionID: "ses-1",
-          status: { type: "busy" },
-        },
-      })
-
-      expect(result).toEqual<SessionBusy>({
-        type: "SessionBusy",
-        sessionId: "ses-1",
-      })
-    })
-  })
 
   describe("SessionIdle", () => {
     it("extracts SessionIdle from session.status with idle type", () => {

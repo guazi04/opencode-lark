@@ -13,11 +13,6 @@ export interface TextDelta {
   readonly text: string
 }
 
-export interface ReasoningDelta {
-  readonly type: "ReasoningDelta"
-  readonly sessionId: string
-  readonly text: string
-}
 
 export interface ToolStateChange {
   readonly type: "ToolStateChange"
@@ -38,10 +33,6 @@ export interface SubtaskDiscovered {
   readonly agent: string
 }
 
-export interface SessionBusy {
-  readonly type: "SessionBusy"
-  readonly sessionId: string
-}
 
 export interface SessionIdle {
   readonly type: "SessionIdle"
@@ -49,11 +40,9 @@ export interface SessionIdle {
 }
 
 export type ProcessedAction =
-  | ReasoningDelta
   | TextDelta
   | ToolStateChange
   | SubtaskDiscovered
-  | SessionBusy
   | SessionIdle
 
 // ---------------------------------------------------------------------------
@@ -216,7 +205,7 @@ export class EventProcessor {
 
   private processMessagePartDelta(
     event: MessagePartDeltaEvent,
-  ): TextDelta | ReasoningDelta | null {
+  ): TextDelta | null {
     const props = event.properties
     if (!isObject(props)) return null
 
@@ -233,7 +222,7 @@ export class EventProcessor {
     // Check if this delta belongs to a reasoning part
     const partID = (props as Record<string, unknown>).partID
     if (typeof partID === "string" && this.reasoningPartIds.has(partID)) {
-      return { type: "ReasoningDelta", sessionId, text: delta }
+      return null
     }
 
     return { type: "TextDelta", sessionId, text: delta }
@@ -248,11 +237,10 @@ export class EventProcessor {
   }
 
   private processReasoningPart(
-    sessionId: string,
-    delta: string | undefined,
-  ): ReasoningDelta | null {
-    if (typeof delta !== "string" || delta.length === 0) return null
-    return { type: "ReasoningDelta", sessionId, text: delta }
+    _sessionId: string,
+    _delta: string | undefined,
+  ): null {
+    return null
   }
 
   private processToolPart(
@@ -299,7 +287,7 @@ export class EventProcessor {
 
   private processSessionStatus(
     event: SessionStatusEvent,
-  ): SessionBusy | SessionIdle | null {
+  ): SessionIdle | null {
     const props = event.properties
     if (!isObject(props)) return null
 
@@ -315,7 +303,7 @@ export class EventProcessor {
 
     switch (statusType) {
       case "busy":
-        return { type: "SessionBusy", sessionId }
+        return null
       case "idle":
         return { type: "SessionIdle", sessionId }
       default:
