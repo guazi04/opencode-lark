@@ -174,7 +174,6 @@ async function main(): Promise<void> {
 
   const interactiveHandler = createInteractiveHandler({
     serverUrl,
-    feishuClient,
     logger,
   })
 
