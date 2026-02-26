@@ -97,6 +97,7 @@ bun install
 | 获取群组中所有消息 | `im:message.group_msg` | 接收群聊中的所有消息 | ✅ |
 | 获取群组中 @机器人的消息 | `im:message.group_at_msg:readonly` | 接收群聊中 @机器人的消息 | ✅ |
 | 获取与上传图片或文件资源 | `im:resource` | 处理消息附件 | ✅ |
+| 创建并发布卡片 | `cardkit:card:write` | 渲染交互式卡片（提问、权限审批） | ✅ |
 
 ### 5. 发布应用
 

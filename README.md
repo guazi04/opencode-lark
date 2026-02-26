@@ -95,6 +95,7 @@ Navigate to **Development Config → Permissions & Scopes** and add the followin
 | 获取群组中所有消息 | `im:message.group_msg` | Receive all group messages | ✅ |
 | 获取群组中 @机器人的消息 | `im:message.group_at_msg:readonly` | Receive group messages that @mention the bot | ✅ |
 | 获取与上传图片或文件资源 | `im:resource` | Handle message attachments | ✅ |
+| 创建并发布卡片 | `cardkit:card:write` | Render interactive cards (questions, permissions) | ✅ |
 
 ### 5. Publish the App
 
