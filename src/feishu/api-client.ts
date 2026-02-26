@@ -24,7 +24,6 @@ export interface FeishuApiClient {
   sendMessage(chatId: string, body: FeishuMessageBody): Promise<FeishuApiResponse>
   replyMessage(messageId: string, body: FeishuMessageBody): Promise<FeishuApiResponse>
   updateMessage(messageId: string, content: string): Promise<FeishuApiResponse>
-  editMessage(messageId: string, body: FeishuMessageBody): Promise<FeishuApiResponse>
   addReaction(messageId: string, emojiType: string): Promise<FeishuApiResponse>
   deleteReaction(messageId: string, reactionId: string): Promise<FeishuApiResponse>
 }
@@ -141,12 +140,6 @@ export function createFeishuApiClient(options: FeishuApiClientOptions): FeishuAp
       })
     },
 
-    async editMessage(messageId, body) {
-      return apiRequest("PUT", `/im/v1/messages/${messageId}`, {
-        msg_type: body.msg_type,
-        content: body.content,
-      })
-    },
 
     async addReaction(messageId, emojiType) {
       return apiRequest("POST", `/im/v1/messages/${messageId}/reactions`, {

@@ -164,11 +164,7 @@ export class FeishuPlugin extends BaseChannelPlugin {
           pendingUpdates: [],
           createdAt: Date.now(),
           flush: async () => {
-            if (session.pendingUpdates.length > 0) {
-              const text = session.pendingUpdates.join("")
-              await cardSession.appendText(text)
-              session.pendingUpdates = []
-            }
+            // No-op: flush is handled by tool status cards
           },
         }
         return session

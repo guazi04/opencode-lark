@@ -107,10 +107,6 @@ export function createStreamingBridge(
               break
             }
 
-            case "ReasoningDelta": {
-              // Reasoning is ignored — not displayed
-              break
-            }
 
 
             case "ToolStateChange":

@@ -52,7 +52,6 @@ export function createMockFeishuClient(): FeishuApiClient {
     sendMessage: vi.fn(),
     replyMessage: vi.fn(),
     updateMessage: vi.fn(),
-    editMessage: vi.fn(),
     addReaction: vi.fn(),
     deleteReaction: vi.fn(),
   }

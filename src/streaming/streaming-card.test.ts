@@ -110,79 +110,6 @@ describe("StreamingCardSession", () => {
     })
   })
 
-  describe("appendText (no-op)", () => {
-    it("does not call updateElement when text is appended", async () => {
-      const { session, cardkitClient } = createStartedSession()
-      await session.start()
-
-      await session.appendText("Hello")
-      expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-    })
-
-    it("does not modify card even with multiple calls", async () => {
-      const { session, cardkitClient } = createStartedSession()
-      await session.start()
-
-      await session.appendText("Hello")
-      await session.appendText(" world")
-      await session.appendText("!")
-      expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-    })
-
-    it("does nothing if not started", async () => {
-      const { session, cardkitClient } = createStartedSession()
-      await session.appendText("ignored")
-      expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-    })
-
-    it("does nothing after close", async () => {
-      const { session, cardkitClient } = createStartedSession()
-      await session.start()
-      await session.close()
-      cardkitClient.updateElement.mockClear()
-      await session.appendText("ignored")
-      expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("throttle (appendText is no-op)", () => {
-    it("10 rapid appendText calls produce 0 updateElement calls", async () => {
-      vi.useFakeTimers()
-      try {
-        const { session, cardkitClient } = createStartedSession()
-        await session.start()
-
-        for (let i = 0; i < 10; i++) {
-          vi.advanceTimersByTime(5)
-          await session.appendText(String.fromCharCode(97 + i))
-        }
-
-        // appendText is a no-op — no updateElement calls
-        expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it("no pending text accumulates since appendText is no-op", async () => {
-      vi.useFakeTimers()
-      try {
-        const { session, cardkitClient } = createStartedSession()
-        await session.start()
-
-        await session.appendText("first")
-        vi.advanceTimersByTime(10)
-        await session.appendText("-second")
-        vi.advanceTimersByTime(200)
-        await session.appendText("-third")
-
-        // No updateElement calls at all
-        expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-  })
 
   describe("close behavior", () => {
     it("close with no tools produces 'Done' summary", async () => {
@@ -246,18 +173,12 @@ describe("StreamingCardSession", () => {
       expect(cardkitClient.closeStreaming).toHaveBeenCalledOnce()
     })
 
-    it("appendText does not affect close behavior", async () => {
+    it("close with no tools produces Done update and summary", async () => {
       const { session, cardkitClient } = createStartedSession()
       await session.start()
-
-      // appendText is no-op, so these should not affect close
-      await session.appendText("some text")
-      await session.appendText(" more text")
       await session.close()
 
-      // Close should use "✅ Done" fallback (no tools)
-      // The initial card already shows "🛠️ Processing...", but lastSentContent is ""
-      // So it should send the update
+      // Close should use Done fallback (no tools)
       expect(cardkitClient.updateElement).toHaveBeenCalledWith(
         "card_123",
         "content",
@@ -277,14 +198,10 @@ describe("StreamingCardSession", () => {
       const { session, cardkitClient } = createStartedSession()
       await session.start()
 
-      // appendText is no-op — no text in card
-      await session.appendText("Working...")
       await session.setToolStatus("read_file", "running")
 
       const lastCall = cardkitClient.updateElement.mock.calls.at(-1)!
       expect(lastCall[2]).toContain("🔄 read_file")
-      // Card should NOT contain free-form text
-      expect(lastCall[2]).not.toContain("Working...")
     })
 
     it("updates existing tool status", async () => {
@@ -363,21 +280,13 @@ describe("StreamingCardSession", () => {
       expect(content).toMatch(/^\n\n---\n/)
     })
 
-    it("appendText does not modify card content", async () => {
+    it("card content is tool-only (no free-form text)", async () => {
       const { session, cardkitClient } = createStartedSession()
       await session.start()
 
-      await session.appendText("This should be ignored")
-      await session.appendText("This too")
-
-      // No updateElement calls from appendText
-      expect(cardkitClient.updateElement).not.toHaveBeenCalled()
-
-      // Now add a tool status — content should not contain appended text
+      // Add a tool status — content should be tool status only
       await session.setToolStatus("bash", "running")
       const lastCall = cardkitClient.updateElement.mock.calls.at(-1)!
-      expect(lastCall[2]).not.toContain("This should be ignored")
-      expect(lastCall[2]).not.toContain("This too")
       expect(lastCall[2]).toContain("🔄 bash")
     })
   })

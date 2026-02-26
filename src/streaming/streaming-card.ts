@@ -94,11 +94,6 @@ export class StreamingCardSession {
     this.state = { cardId, messageId, sequence: 1, currentText: "" }
   }
 
-  async appendText(_text: string): Promise<void> {
-    // No-op: card no longer displays free-form text.
-    // Kept for backward API compatibility (streaming-integration.ts still calls this).
-    return
-  }
 
   async setToolStatus(name: string, state: "running" | "completed" | "error", title?: string): Promise<void> {
     if (!this.state || this.closed) {

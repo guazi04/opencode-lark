@@ -809,8 +809,6 @@ describe("createStreamingBridge", () => {
     })
     // deleteReaction called with correct args
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
-    // editMessage should NOT be called
-    expect(mockFeishu.editMessage).not.toHaveBeenCalled()
   })
 
   it("sends text as reply and calls deleteReaction when no reasoning content", async () => {
@@ -865,7 +863,5 @@ describe("createStreamingBridge", () => {
     })
     // deleteReaction called
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
-    // editMessage should NOT be called
-    expect(mockFeishu.editMessage).not.toHaveBeenCalled()
   })
 })
