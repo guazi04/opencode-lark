@@ -7,6 +7,7 @@
 import type { EventProcessor } from "./event-processor.js"
 import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { Logger } from "../utils/logger.js"
+import { buildQuestionCard, buildPermissionCard } from "../handler/streaming-integration.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,6 +105,30 @@ export function createSessionObserver(
           }
           case "SessionIdle": {
             flushBuffers(chatId)
+            break
+          }
+          case "QuestionAsked": {
+            const questionCard = buildQuestionCard(action)
+            feishuClient
+              .sendMessage(chatId, {
+                msg_type: "interactive",
+                content: JSON.stringify({ type: "card", data: questionCard }),
+              })
+              .catch((err) => {
+                logger.warn(`Question card send failed (observer): ${err}`)
+              })
+            break
+          }
+          case "PermissionRequested": {
+            const permissionCard = buildPermissionCard(action)
+            feishuClient
+              .sendMessage(chatId, {
+                msg_type: "interactive",
+                content: JSON.stringify({ type: "card", data: permissionCard }),
+              })
+              .catch((err) => {
+                logger.warn(`Permission card send failed (observer): ${err}`)
+              })
             break
           }
           default:

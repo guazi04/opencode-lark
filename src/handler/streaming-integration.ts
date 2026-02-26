@@ -4,6 +4,7 @@ import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { SubAgentTracker } from "../streaming/subagent-tracker.js"
 import type { Logger } from "../utils/logger.js"
 import type { EventProcessor } from "../streaming/event-processor.js"
+import type { QuestionAsked, PermissionRequested } from "../streaming/event-processor.js"
 import type { EventListenerMap } from "../utils/event-listeners.js"
 import { addListener, removeListener } from "../utils/event-listeners.js"
 import { StreamingCardSession } from "../streaming/streaming-card.js"
@@ -150,6 +151,28 @@ export function createStreamingBridge(
               break
             }
 
+            case "QuestionAsked": {
+              const questionCard = buildQuestionCard(action)
+              feishuClient.sendMessage(chatId, {
+                msg_type: "interactive",
+                content: JSON.stringify({ type: "card", data: questionCard }),
+              }).catch((err) => {
+                logger.warn(`Question card send failed: ${err}`)
+              })
+              break
+            }
+
+            case "PermissionRequested": {
+              const permissionCard = buildPermissionCard(action)
+              feishuClient.sendMessage(chatId, {
+                msg_type: "interactive",
+                content: JSON.stringify({ type: "card", data: permissionCard }),
+              }).catch((err) => {
+                logger.warn(`Permission card send failed: ${err}`)
+              })
+              break
+            }
+
             case "SessionIdle": {
               if (settled) return
               settled = true
@@ -279,6 +302,89 @@ function buildSubAgentNotificationCard(
             text: { tag: "plain_text", content: "🔍 View Details" },
             type: "primary",
             value: { action: "view_subagent", childSessionId },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+export function buildQuestionCard(
+  action: QuestionAsked,
+): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = []
+
+  // Render each question (support multi-question requests)
+  for (let qi = 0; qi < action.questions.length; qi++) {
+    const question = action.questions[qi]!
+    if (qi > 0) {
+      elements.push({ tag: "hr" })
+    }
+    elements.push({
+      tag: "div",
+      text: { tag: "lark_md", content: question.question },
+    })
+    elements.push({
+      tag: "action",
+      actions: question.options.map((opt, idx) => ({
+        tag: "button",
+        text: { tag: "plain_text", content: opt.label },
+        type: idx === 0 ? "primary" : "default",
+        value: {
+          action: "question_answer",
+          requestId: action.requestId,
+          answers: JSON.stringify([[opt.label]]),
+        },
+      })),
+    })
+  }
+
+  const header = action.questions[0]?.header ?? "Question"
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: "plain_text", content: `❓ ${header}` },
+      template: "orange",
+    },
+    elements,
+  }
+}
+
+export function buildPermissionCard(
+  action: PermissionRequested,
+): Record<string, unknown> {
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: "plain_text", content: `🔐 Permission: ${action.permissionType}` },
+      template: "yellow",
+    },
+    elements: [
+      {
+        tag: "div",
+        text: { tag: "lark_md", content: action.title },
+      },
+      {
+        tag: "action",
+        actions: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "✅ Allow Once" },
+            type: "primary",
+            value: { action: "permission_reply", requestId: action.requestId, reply: "once" },
+          },
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "✅ Always Allow" },
+            type: "default",
+            value: { action: "permission_reply", requestId: action.requestId, reply: "always" },
+          },
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "❌ Reject" },
+            type: "danger",
+            value: { action: "permission_reply", requestId: action.requestId, reply: "reject" },
           },
         ],
       },

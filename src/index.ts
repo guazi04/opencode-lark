@@ -18,6 +18,7 @@ import { loadConfig } from "./utils/config.js"
 import { initDatabase } from "./utils/db.js"
 import { createLogger } from "./utils/logger.js"
 import type { EventListenerMap } from "./utils/event-listeners.js"
+import type { FeishuCardAction } from "./types.js"
 import { createFeishuApiClient } from "./feishu/api-client.js"
 import { CardKitClient } from "./feishu/cardkit-client.js"
 import { MessageDedup } from "./feishu/message-dedup.js"
@@ -31,6 +32,7 @@ import { createStreamingBridge } from "./handler/streaming-integration.js"
 import { createSessionObserver } from "./streaming/session-observer.js"
 import { addListener, removeListener } from "./utils/event-listeners.js"
 import { createSubAgentCardHandler } from "./streaming/subagent-card.js"
+import { createInteractiveHandler } from "./handler/interactive-handler.js"
 import { createFeishuGateway } from "./feishu/webhook-server.js"
 import { FeishuPlugin } from "./channel/feishu/feishu-plugin.js"
 import { ChannelManager } from "./channel/manager.js"
@@ -159,12 +161,29 @@ async function main(): Promise<void> {
     observer,
   })
 
-  // Create card action handler
-  const handleCardAction = createSubAgentCardHandler({
+  // Create card action handlers
+  const subAgentCardHandler = createSubAgentCardHandler({
     subAgentTracker,
     feishuClient,
     logger,
   })
+
+  const interactiveHandler = createInteractiveHandler({
+    serverUrl,
+    feishuClient,
+    logger,
+  })
+
+  const handleCardAction = async (action: FeishuCardAction) => {
+    const actionType = action.action?.value?.action
+    if (actionType === "view_subagent") {
+      return subAgentCardHandler(action)
+    }
+    if (actionType === "question_answer" || actionType === "permission_reply") {
+      return interactiveHandler(action)
+    }
+    logger.warn(`Unknown card action type: ${actionType}`)
+  }
 
   // ═══════════════════════════════════════════
   // Phase 5: Subscribe to Opencode Events (SSE)

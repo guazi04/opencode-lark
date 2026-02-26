@@ -39,11 +39,35 @@ export interface SessionIdle {
   readonly sessionId: string
 }
 
+export interface QuestionAsked {
+  readonly type: "QuestionAsked"
+  readonly sessionId: string
+  readonly requestId: string
+  readonly questions: ReadonlyArray<{
+    question: string
+    header: string
+    options: ReadonlyArray<{ label: string; description: string }>
+    multiple?: boolean
+    custom?: boolean
+  }>
+}
+
+export interface PermissionRequested {
+  readonly type: "PermissionRequested"
+  readonly sessionId: string
+  readonly requestId: string
+  readonly permissionType: string
+  readonly title: string
+  readonly metadata: Record<string, unknown>
+}
+
 export type ProcessedAction =
   | TextDelta
   | ToolStateChange
   | SubtaskDiscovered
   | SessionIdle
+  | QuestionAsked
+  | PermissionRequested
 
 // ---------------------------------------------------------------------------
 // Input event shapes (from actual opencode SSE stream)
@@ -98,12 +122,47 @@ interface SessionIdleEvent {
   }
 }
 
+interface QuestionAskedEvent {
+  type: "question.asked"
+  properties: {
+    id: string
+    sessionID: string
+    questions: Array<{
+      question: string
+      header: string
+      options: Array<{ label: string; description: string }>
+      multiple?: boolean
+      custom?: boolean
+    }>
+    tool?: {
+      messageID: string
+      callID: string
+    }
+  }
+}
+
+interface PermissionUpdatedEvent {
+  type: "permission.updated"
+  properties: {
+    id: string
+    type: string
+    pattern?: string | string[]
+    sessionID: string
+    messageID: string
+    callID?: string
+    title: string
+    metadata: Record<string, unknown>
+    time: { created: number }
+  }
+}
+
 type KnownEvent =
   | MessagePartUpdatedEvent
   | MessagePartDeltaEvent
   | SessionStatusEvent
   | SessionIdleEvent
-
+  | QuestionAskedEvent
+  | PermissionUpdatedEvent
 // ---------------------------------------------------------------------------
 // Type guards
 // ---------------------------------------------------------------------------
@@ -121,6 +180,8 @@ const KNOWN_TYPES = new Set([
   "message.part.delta",
   "session.status",
   "session.idle",
+  "question.asked",
+  "permission.updated",
 ])
 
 function isKnownEvent(v: unknown): v is KnownEvent {
@@ -157,6 +218,10 @@ export class EventProcessor {
           return this.processSessionStatus(raw)
         case "session.idle":
           return this.processSessionIdle(raw)
+        case "question.asked":
+          return this.processQuestionAsked(raw)
+        case "permission.updated":
+          return this.processPermissionUpdated(raw)
         default:
           return null
       }
@@ -322,5 +387,58 @@ export class EventProcessor {
     if (!this.ownedSessions.has(sessionId)) return null
 
     return { type: "SessionIdle", sessionId }
+  }
+
+  private processQuestionAsked(
+    event: QuestionAskedEvent,
+  ): QuestionAsked | null {
+    const props = event.properties
+    if (!isObject(props)) return null
+
+    const requestId = (props as Record<string, unknown>).id
+    if (typeof requestId !== "string") return null
+
+    const sessionId = (props as Record<string, unknown>).sessionID
+    if (typeof sessionId !== "string") return null
+
+    const questions = (props as Record<string, unknown>).questions
+    if (!Array.isArray(questions) || questions.length === 0) return null
+
+    return {
+      type: "QuestionAsked",
+      sessionId,
+      requestId,
+      questions: questions as QuestionAsked["questions"],
+    }
+  }
+
+  private processPermissionUpdated(
+    event: PermissionUpdatedEvent,
+  ): PermissionRequested | null {
+    const props = event.properties
+    if (!isObject(props)) return null
+
+    const requestId = (props as Record<string, unknown>).id
+    if (typeof requestId !== "string") return null
+
+    const sessionId = (props as Record<string, unknown>).sessionID
+    if (typeof sessionId !== "string") return null
+
+    const permissionType = (props as Record<string, unknown>).type
+    if (typeof permissionType !== "string") return null
+
+    const title = (props as Record<string, unknown>).title
+    if (typeof title !== "string") return null
+
+    const metadata = (props as Record<string, unknown>).metadata
+
+    return {
+      type: "PermissionRequested",
+      sessionId,
+      requestId,
+      permissionType,
+      title,
+      metadata: isObject(metadata) ? metadata as Record<string, unknown> : {},
+    }
   }
 }
