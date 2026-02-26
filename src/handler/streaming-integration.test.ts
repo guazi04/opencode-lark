@@ -277,7 +277,7 @@ describe("createStreamingBridge", () => {
     const body1 = subtaskCardCall![1] as { msg_type: string; content: string }
     expect(body1.msg_type).toBe("interactive")
     const cardContent = JSON.parse(body1.content)
-    expect(cardContent.data.header.template).toBe("indigo")
+    expect(cardContent.header.template).toBe("indigo")
   })
 
   it("removes listener on SessionIdle", async () => {
@@ -690,9 +690,9 @@ describe("createStreamingBridge", () => {
     const body = subtaskCall![1] as { msg_type: string; content: string }
     expect(body.msg_type).toBe("interactive")
     const parsed = JSON.parse(body.content)
-    expect(parsed.data.header.template).toBe("indigo")
-    expect(parsed.data.elements[1].actions[0].text.content).toBe("🔍 View Details")
-    expect(parsed.data.elements[1].actions[0].value.childSessionId).toBe("child-ses-1")
+    expect(parsed.header.template).toBe("indigo")
+    expect(parsed.elements[1].actions[0].text.content).toBe("🔍 View Details")
+    expect(parsed.elements[1].actions[0].value.childSessionId).toBe("child-ses-1")
   })
 
   it("text buffer truncates at 100KB", async () => {

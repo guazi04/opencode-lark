@@ -117,7 +117,7 @@ export function createSessionObserver(
             feishuClient
               .sendMessage(chatId, {
                 msg_type: "interactive",
-                content: JSON.stringify({ type: "card", data: questionCard }),
+                content: JSON.stringify(questionCard),
               })
               .catch((err) => {
                 logger.warn(`Question card send failed (observer): ${err}`)
@@ -132,7 +132,7 @@ export function createSessionObserver(
             feishuClient
               .sendMessage(chatId, {
                 msg_type: "interactive",
-                content: JSON.stringify({ type: "card", data: permissionCard }),
+                content: JSON.stringify(permissionCard),
               })
               .catch((err) => {
                 logger.warn(`Permission card send failed (observer): ${err}`)

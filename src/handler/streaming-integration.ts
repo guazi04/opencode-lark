@@ -143,7 +143,7 @@ export function createStreamingBridge(
                   )
                   return feishuClient.sendMessage(chatId, {
                     msg_type: "interactive",
-                    content: JSON.stringify({ type: "card", data: cardData }),
+                    content: JSON.stringify(cardData),
                   })
                 })
                 .catch((err) => {
@@ -159,7 +159,7 @@ export function createStreamingBridge(
               const questionCard = buildQuestionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
-                content: JSON.stringify({ type: "card", data: questionCard }),
+                content: JSON.stringify(questionCard),
               }).catch((err) => {
                 logger.warn(`Question card send failed: ${err}`)
               })
@@ -173,7 +173,7 @@ export function createStreamingBridge(
               const permissionCard = buildPermissionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
-                content: JSON.stringify({ type: "card", data: permissionCard }),
+                content: JSON.stringify(permissionCard),
               }).catch((err) => {
                 logger.warn(`Permission card send failed: ${err}`)
               })

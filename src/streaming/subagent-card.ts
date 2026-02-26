@@ -56,7 +56,7 @@ export function createSubAgentCardHandler(deps: SubAgentCardDeps) {
       const card = buildSubAgentCard("子任务进展", content)
       await feishuClient.replyMessage(messageId, {
         msg_type: "interactive",
-        content: JSON.stringify({ type: "card", data: card }),
+        content: JSON.stringify(card),
       })
 
       logger.info(`Sent subagent card for session ${childSessionId}`)

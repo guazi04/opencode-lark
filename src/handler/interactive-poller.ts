@@ -115,7 +115,7 @@ export function createInteractivePoller(
       feishuClient
         .sendMessage(chatId, {
           msg_type: "interactive",
-          content: JSON.stringify({ type: "card", data: card }),
+          content: JSON.stringify(card),
         })
         .catch((err) => {
           logger.warn(`Poller question card send failed: ${err}`)
@@ -170,7 +170,7 @@ export function createInteractivePoller(
       feishuClient
         .sendMessage(chatId, {
           msg_type: "interactive",
-          content: JSON.stringify({ type: "card", data: card }),
+          content: JSON.stringify(card),
         })
         .catch((err) => {
           logger.warn(`Poller permission card send failed: ${err}`)
