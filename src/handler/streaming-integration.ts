@@ -16,6 +16,7 @@ export interface StreamingBridgeDeps {
   feishuClient: FeishuApiClient
   subAgentTracker: SubAgentTracker
   logger: Logger
+  seenInteractiveIds: Set<string>
 }
 
 export interface StreamingBridge {
@@ -41,7 +42,7 @@ const FIRST_EVENT_TIMEOUT_MS = 15_000
 export function createStreamingBridge(
   deps: StreamingBridgeDeps,
 ): StreamingBridge {
-  const { cardkitClient, feishuClient, subAgentTracker, logger } = deps
+  const { cardkitClient, feishuClient, subAgentTracker, logger, seenInteractiveIds } = deps
 
   return {
     async handleMessage(
@@ -152,6 +153,9 @@ export function createStreamingBridge(
             }
 
             case "QuestionAsked": {
+              if (seenInteractiveIds.has(action.requestId)) break
+              seenInteractiveIds.add(action.requestId)
+              logger.info(`Question event received in bridge for session ${sessionId}, requestId=${action.requestId}`)
               const questionCard = buildQuestionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
@@ -163,6 +167,9 @@ export function createStreamingBridge(
             }
 
             case "PermissionRequested": {
+              if (seenInteractiveIds.has(action.requestId)) break
+              seenInteractiveIds.add(action.requestId)
+              logger.info(`Permission event received in bridge for session ${sessionId}, requestId=${action.requestId}`)
               const permissionCard = buildPermissionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
@@ -246,6 +253,12 @@ export function createStreamingBridge(
           })
           .catch((err) => {
             if (settled) return
+            // If SSE events have been flowing, the POST timeout is expected
+            // (e.g. agent blocked on question/permission). Keep the listener alive.
+            if (gotFirstEvent) {
+              logger.info(`POST timed out for session ${sessionId} but SSE events are flowing — keeping listener active`)
+              return
+            }
             settled = true
             clearTimeout(firstEventTimer)
             removeListener(eventListeners, sessionId, myListener)

@@ -141,18 +141,19 @@ interface QuestionAskedEvent {
   }
 }
 
-interface PermissionUpdatedEvent {
-  type: "permission.updated"
+interface PermissionAskedEvent {
+  type: "permission.asked"
   properties: {
     id: string
-    type: string
-    pattern?: string | string[]
     sessionID: string
-    messageID: string
-    callID?: string
-    title: string
+    permission: string
+    patterns: string[]
     metadata: Record<string, unknown>
-    time: { created: number }
+    always: string[]
+    tool?: {
+      messageID: string
+      callID: string
+    }
   }
 }
 
@@ -162,7 +163,7 @@ type KnownEvent =
   | SessionStatusEvent
   | SessionIdleEvent
   | QuestionAskedEvent
-  | PermissionUpdatedEvent
+  | PermissionAskedEvent
 // ---------------------------------------------------------------------------
 // Type guards
 // ---------------------------------------------------------------------------
@@ -181,7 +182,7 @@ const KNOWN_TYPES = new Set([
   "session.status",
   "session.idle",
   "question.asked",
-  "permission.updated",
+  "permission.asked",
 ])
 
 function isKnownEvent(v: unknown): v is KnownEvent {
@@ -195,14 +196,17 @@ function isKnownEvent(v: unknown): v is KnownEvent {
 
 export interface EventProcessorOptions {
   ownedSessions: Set<string>
+  logger?: { warn(msg: string, ...args: unknown[]): void }
 }
 
 export class EventProcessor {
   private readonly ownedSessions: Set<string>
   private readonly reasoningPartIds = new Set<string>()
+  private readonly logger?: { warn(msg: string, ...args: unknown[]): void }
 
   constructor(options: EventProcessorOptions) {
     this.ownedSessions = options.ownedSessions
+    this.logger = options.logger
   }
 
   processEvent(raw: unknown): ProcessedAction | null {
@@ -220,13 +224,14 @@ export class EventProcessor {
           return this.processSessionIdle(raw)
         case "question.asked":
           return this.processQuestionAsked(raw)
-        case "permission.updated":
-          return this.processPermissionUpdated(raw)
+        case "permission.asked":
+          return this.processPermissionAsked(raw)
         default:
           return null
       }
-    } catch {
-
+    } catch (err) {
+      const eventType = (raw as Record<string, unknown>)?.type ?? "unknown"
+      this.logger?.warn(`Error processing ${eventType} event: ${err}`)
       return null
     }
   }
@@ -412,8 +417,8 @@ export class EventProcessor {
     }
   }
 
-  private processPermissionUpdated(
-    event: PermissionUpdatedEvent,
+  private processPermissionAsked(
+    event: PermissionAskedEvent,
   ): PermissionRequested | null {
     const props = event.properties
     if (!isObject(props)) return null
@@ -424,11 +429,12 @@ export class EventProcessor {
     const sessionId = (props as Record<string, unknown>).sessionID
     if (typeof sessionId !== "string") return null
 
-    const permissionType = (props as Record<string, unknown>).type
+    const permissionType = (props as Record<string, unknown>).permission
     if (typeof permissionType !== "string") return null
 
-    const title = (props as Record<string, unknown>).title
-    if (typeof title !== "string") return null
+    const patterns = (props as Record<string, unknown>).patterns
+    const patternList = Array.isArray(patterns) ? patterns.filter((p): p is string => typeof p === "string") : []
+    const title = patternList.length > 0 ? patternList.join(", ") : permissionType
 
     const metadata = (props as Record<string, unknown>).metadata
 

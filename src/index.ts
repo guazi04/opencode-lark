@@ -33,6 +33,7 @@ import { createSessionObserver } from "./streaming/session-observer.js"
 import { addListener, removeListener } from "./utils/event-listeners.js"
 import { createSubAgentCardHandler } from "./streaming/subagent-card.js"
 import { createInteractiveHandler } from "./handler/interactive-handler.js"
+import { createInteractivePoller } from "./handler/interactive-poller.js"
 import { createFeishuGateway } from "./feishu/webhook-server.js"
 import { FeishuPlugin } from "./channel/feishu/feishu-plugin.js"
 import { ChannelManager } from "./channel/manager.js"
@@ -126,8 +127,9 @@ async function main(): Promise<void> {
 
   const ownedSessions = new Set<string>()
   const eventListeners: EventListenerMap = new Map()
+  const seenInteractiveIds = new Set<string>()
 
-  const eventProcessor = new EventProcessor({ ownedSessions })
+  const eventProcessor = new EventProcessor({ ownedSessions, logger })
 
   const subAgentTracker = new SubAgentTracker({ serverUrl })
 
@@ -136,6 +138,7 @@ async function main(): Promise<void> {
     feishuClient,
     subAgentTracker,
     logger,
+    seenInteractiveIds,
   })
 
   const observer = createSessionObserver({
@@ -144,6 +147,7 @@ async function main(): Promise<void> {
     addListener: (sessionId, fn) => addListener(eventListeners, sessionId, fn),
     removeListener: (sessionId, fn) => removeListener(eventListeners, sessionId, fn),
     logger,
+    seenInteractiveIds,
   })
 
   const handleMessage = createMessageHandler({
@@ -174,6 +178,15 @@ async function main(): Promise<void> {
     logger,
   })
 
+  const interactivePoller = createInteractivePoller({
+    serverUrl,
+    feishuClient,
+    logger,
+    getChatForSession: (sessionId) => observer.getChatForSession(sessionId),
+    seenInteractiveIds,
+  })
+  interactivePoller.start()
+
   const handleCardAction = async (action: FeishuCardAction) => {
     const actionType = action.action?.value?.action
     if (actionType === "view_subagent") {
@@ -195,7 +208,12 @@ async function main(): Promise<void> {
       const events = await client.event.subscribe()
       logger.info("SSE event stream connected")
       for await (const event of events.stream) {
-        logger.debug(`SSE event: ${JSON.stringify(event).slice(0, 300)} [listeners=${eventListeners.size}]`)
+        const eventType = (event as Record<string, unknown>)?.type as string | undefined
+        if (eventType) {
+          const props = (event as Record<string, unknown>)?.properties as Record<string, unknown> | undefined
+          const sessionID = props?.sessionID ?? (props?.part && typeof props.part === "object" ? (props.part as Record<string, unknown>).sessionID : undefined)
+          logger.debug(`SSE: ${eventType} session=${sessionID ?? "n/a"}`)
+        }
         for (const [key, listeners] of eventListeners.entries()) {
           for (const listener of listeners) {
             try {
@@ -289,6 +307,7 @@ async function main(): Promise<void> {
       await webhookServer.close()
       cronService?.stop()
       heartbeatService?.stop()
+      interactivePoller.stop()
       observer.stop()
       dedup.close()
       db.close()

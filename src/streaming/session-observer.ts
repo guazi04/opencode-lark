@@ -19,11 +19,13 @@ export interface SessionObserverDeps {
   addListener: (sessionId: string, fn: (event: unknown) => void) => void
   removeListener: (sessionId: string, fn: (event: unknown) => void) => void
   logger: Logger
+  seenInteractiveIds: Set<string>
 }
 
 export interface SessionObserver {
   observe(sessionId: string, chatId: string): void
   markOwned(messageId: string): void
+  getChatForSession(sessionId: string): string | undefined
   stop(): void
 }
 
@@ -55,7 +57,7 @@ function extractMessageId(rawEvent: unknown): string | undefined {
 export function createSessionObserver(
   deps: SessionObserverDeps,
 ): SessionObserver {
-  const { feishuClient, eventProcessor, addListener, removeListener, logger } =
+  const { feishuClient, eventProcessor, addListener, removeListener, logger, seenInteractiveIds } =
     deps
 
   // Feishu-initiated message IDs — skip these in forwarding
@@ -108,6 +110,9 @@ export function createSessionObserver(
             break
           }
           case "QuestionAsked": {
+            if (seenInteractiveIds.has(action.requestId)) break
+            seenInteractiveIds.add(action.requestId)
+            logger.info(`Question event received in observer for chat ${chatId}, requestId=${action.requestId}`)
             const questionCard = buildQuestionCard(action)
             feishuClient
               .sendMessage(chatId, {
@@ -120,6 +125,9 @@ export function createSessionObserver(
             break
           }
           case "PermissionRequested": {
+            if (seenInteractiveIds.has(action.requestId)) break
+            seenInteractiveIds.add(action.requestId)
+            logger.info(`Permission event received in observer for chat ${chatId}, requestId=${action.requestId}`)
             const permissionCard = buildPermissionCard(action)
             feishuClient
               .sendMessage(chatId, {
@@ -146,6 +154,10 @@ export function createSessionObserver(
       knownMessageIds.add(messageId)
       // Drop any buffered text for this message
       textBuffers.delete(messageId)
+    },
+
+    getChatForSession(sessionId: string): string | undefined {
+      return observedSessions.get(sessionId)?.chatId
     },
 
     stop(): void {
