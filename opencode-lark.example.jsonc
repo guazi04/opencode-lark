@@ -17,7 +17,8 @@
     "encryptKey": "${FEISHU_ENCRYPT_KEY}"
   },
 
-  // Default opencode agent (use "build" for the built-in default)
+  // Default opencode agent name. This should match an agent configured in your opencode setup.
+  // Common values: "build", "claude", "code" — check your opencode config for available agents.
   "defaultAgent": "build",
 
   // Data directory for SQLite database

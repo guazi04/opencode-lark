@@ -5,14 +5,14 @@
 
 import * as fs from "node:fs"
 import * as path from "node:path"
-import Database from "better-sqlite3"
+import { Database } from "bun:sqlite"
 import { createLogger } from "./logger.js"
 
 const logger = createLogger("db")
 
 export interface AppDatabase {
-  sessions: Database.Database
-  memory: Database.Database
+  sessions: Database
+  memory: Database
   close(): void
 }
 
@@ -28,12 +28,12 @@ export function initDatabase(dataDir: string): AppDatabase {
   const sessionsDb = new Database(sessionsDbPath)
 
   // Enable WAL mode for better concurrent read performance
-  sessionsDb.pragma("journal_mode = WAL")
+  sessionsDb.exec("PRAGMA journal_mode = WAL")
 
 
   const memoryDbPath = path.join(resolvedDir, "memory.db")
   const memoryDb = new Database(memoryDbPath)
-  memoryDb.pragma("journal_mode = WAL")
+  memoryDb.exec("PRAGMA journal_mode = WAL")
   logger.info(`Database initialized at ${sessionsDbPath}`)
 
   return {

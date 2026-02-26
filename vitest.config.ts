@@ -6,5 +6,6 @@ export default defineConfig({
     root: "src",
     include: ["**/*.test.ts"],
     globals: true,
+    pool: "forks",
   },
 })

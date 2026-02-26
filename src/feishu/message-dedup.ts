@@ -4,22 +4,22 @@
  * Prevents processing the same Feishu event twice, surviving restarts.
  */
 
-import type Database from "better-sqlite3"
+import { type Database, type Statement } from "bun:sqlite"
 import { createLogger } from "../utils/logger.js"
 
 const logger = createLogger("message-dedup")
 
 interface MessageDedupOptions {
-  db: Database.Database
+  db: Database
   ttlMs?: number
 }
 
 export class MessageDedup {
-  private readonly db: Database.Database
+  private readonly db: Database
   private readonly ttlMs: number
-  private readonly insertStmt: Database.Statement
-  private readonly checkStmt: Database.Statement
-  private readonly cleanupStmt: Database.Statement
+  private readonly insertStmt: Statement
+  private readonly checkStmt: Statement
+  private readonly cleanupStmt: Statement
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(options: MessageDedupOptions) {
@@ -34,7 +34,7 @@ export class MessageDedup {
       )
     `)
 
-    this.checkStmt = this.db.prepare<[string], { event_id: string }>(
+    this.checkStmt = this.db.prepare(
       "SELECT event_id FROM message_dedup WHERE event_id = ?",
     )
 

@@ -1,10 +1,10 @@
-import type Database from "better-sqlite3"
+import type { Database } from "bun:sqlite"
 import { createLogger } from "../utils/logger.js"
 
 const logger = createLogger("memory-manager")
 
 interface MemoryManagerOptions {
-  db: Database.Database
+  db: Database
 }
 
 export interface MemorySearchResult {
@@ -46,7 +46,7 @@ export function createMemoryManager(options: MemoryManagerOptions): MemoryManage
     "INSERT INTO memory_fts (session_id, content) VALUES (?, ?)",
   )
 
-  const searchStmt = db.prepare<[string, number], { session_id: string; snippet: string; rank: number }>(`
+  const searchStmt = db.prepare(`
     SELECT session_id, snippet(memory_fts, 1, '<b>', '</b>', '...', 64) as snippet, rank
     FROM memory_fts
     WHERE memory_fts MATCH ?
@@ -75,7 +75,7 @@ export function createMemoryManager(options: MemoryManagerOptions): MemoryManage
 
         if (!ftsQuery) return []
 
-        return searchStmt.all(ftsQuery, limit)
+        return searchStmt.all(ftsQuery, limit) as MemorySearchResult[]
       } catch (error) {
         logger.error(`Memory search failed: ${error}`)
         return []

@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3"
+import { type Database, type Statement } from "bun:sqlite"
 import { createLogger } from "../utils/logger.js"
 import type { SessionMapping } from "../types.js"
 
@@ -6,7 +6,7 @@ const logger = createLogger("session-manager")
 
 interface SessionManagerOptions {
   serverUrl: string
-  db: Database.Database
+  db: Database
   defaultAgent: string
 }
 
@@ -49,7 +49,7 @@ export function createSessionManager(
     // Column already exists — safe to ignore
   }
 
-  const getStmt = db.prepare<[string], SessionMapping>(
+  const getStmt = db.prepare(
     "SELECT * FROM feishu_sessions WHERE feishu_key = ?",
   )
 
@@ -99,7 +99,7 @@ export function createSessionManager(
 
   return {
     async getOrCreate(feishuKey, agent) {
-      const existing = getStmt.get(feishuKey)
+      const existing = getStmt.get(feishuKey) as SessionMapping | null
 
       if (existing) {
         updateActiveStmt.run(Date.now(), feishuKey)
@@ -126,7 +126,7 @@ export function createSessionManager(
     },
 
     getSession(feishuKey) {
-      return getStmt.get(feishuKey) ?? null
+      return (getStmt.get(feishuKey) as SessionMapping | undefined) ?? null
     },
 
     cleanup(maxAgeMs = 30 * 60 * 1000) {

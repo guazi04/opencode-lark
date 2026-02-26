@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import Database from "better-sqlite3"
+import { Database } from "bun:sqlite"
 import { createSessionManager } from "./session-manager.js"
 import type { SessionManager } from "./session-manager.js"
 
 const SERVER_URL = "http://127.0.0.1:4096"
 const DEFAULT_AGENT = "claude"
 
-function createTestDb(): Database.Database {
+function createTestDb(): Database {
   return new Database(":memory:")
 }
 
 describe("session-manager", () => {
-  let db: Database.Database
+  let db: Database
   let sm: SessionManager
   const originalFetch = globalThis.fetch
 
