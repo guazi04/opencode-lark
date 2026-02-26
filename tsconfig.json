@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "bun-types"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -19,5 +19,5 @@
     "noImplicitOverride": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "tests", "src/**/*.test.ts", "src/__tests__"]
 }

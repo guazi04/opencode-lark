@@ -90,7 +90,18 @@ This section walks you through creating a Feishu Internal App and configuring th
 Navigate to **App Features → Bot** and enable the bot capability.
 进入**应用功能 → 机器人**，开启机器人功能。
 
-### 3. Configure Permissions / 配置权限
+### 3. Get Credentials / 获取凭证
+
+Navigate to **Credentials & Basic Info** to find:
+进入**凭证与基础信息**找到：
+
+- **App ID** → set as `FEISHU_APP_ID`
+- **App Secret** → set as `FEISHU_APP_SECRET`
+
+You will need these in Step 6 to configure opencode-lark.
+步骤 6 配置 opencode-lark 时需要这些凭证。
+
+### 4. Configure Permissions / 配置权限
 
 Navigate to **Development Config → Permissions & Scopes** and add the following:
 进入**开发配置 → 权限管理**，开通以下权限：
@@ -99,10 +110,51 @@ Navigate to **Development Config → Permissions & Scopes** and add the followin
 |---|---|---|---|
 | 获取与发送单聊、群组消息 | `im:message` | Send messages & update cards / 发送消息、更新卡片 | ✅ |
 | 获取用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` | Receive direct messages / 接收私聊消息 | ✅ |
-| 获取群组中所有消息 | `im:message.group_msg:readonly` | Receive group messages / 接收群聊消息 | ✅ |
+| 获取群组中所有消息 | `im:message.group_msg` | Receive all group messages / 接收群聊中的所有消息 | ✅ |
+| 获取群组中 @机器人的消息 | `im:message.group_at_msg:readonly` | Receive group messages that @mention the bot / 接收群聊中 @机器人的消息 | ✅ |
 | 获取与上传图片或文件资源 | `im:resource` | Handle message attachments / 处理消息附件 | ✅ |
 
-### 4. Subscribe to Events / 订阅事件
+### 5. Publish the App / 发布应用
+
+Navigate to **App Release → Version Management & Release**, create a version and submit for review.
+After approval, add the bot to your workspace.
+进入**应用发布 → 版本管理与发布**，创建版本并提交审核。审核通过后，将机器人添加到工作区。
+
+> **Note**: Internal apps in trial status can be used by app administrators immediately without review for testing.
+> **注意**：测试阶段，应用管理员可直接使用，无需等待审核通过。
+
+### 6. Configure & Start opencode-lark / 配置并启动 opencode-lark
+
+Before configuring event subscriptions, you need to start opencode-lark so Feishu can detect the WebSocket connection.
+在配置事件订阅之前，需要先启动 opencode-lark，飞书才能检测到 WebSocket 连接。
+
+1. Clone the repo and install dependencies / 克隆仓库并安装依赖:
+   ```bash
+   git clone https://github.com/guazi04/opencode-lark.git
+   cd opencode-lark
+   bun install
+   ```
+
+2. Configure credentials / 配置凭证:
+   ```bash
+   cp .env.example .env
+   ```
+   Open `.env` and fill in the `FEISHU_APP_ID` and `FEISHU_APP_SECRET` from Step 3.
+   打开 `.env`，填入步骤 3 获取的 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
+
+3. Start opencode TUI in one terminal / 在一个终端启动 opencode TUI:
+   ```bash
+   opencode
+   ```
+
+4. Start opencode-lark in another terminal / 在另一个终端启动 opencode-lark:
+   ```bash
+   bun run dev
+   ```
+   Keep this running while you configure event subscriptions in the next step.
+   保持运行，然后继续下一步配置事件订阅。
+
+### 7. Subscribe to Events / 订阅事件
 
 Navigate to **Development Config → Event Subscriptions** and:
 进入**开发配置 → 事件订阅**，操作如下：
@@ -116,76 +168,54 @@ Navigate to **Development Config → Event Subscriptions** and:
 |---|---|---|---|
 | 接收消息 | `im.message.receive_v1` | Receive all user messages / 接收用户消息 | ✅ |
 
+> ⚠️ **Important / 重要**: opencode-lark must be running (Step 6) before you can save Long Connection mode. If you see "应用未建立长连接", go back to Step 6 and ensure the app is running.
+>
+> 保存长连接模式前 opencode-lark 必须处于运行状态（步骤 6）。如果看到"应用未建立长连接"错误，请返回步骤 6 确认应用已启动。
+
 > **Optional / 可选**: For interactive card buttons (e.g. card action callbacks), you may also configure a webhook server URL under **Card Engine** settings. Set `FEISHU_WEBHOOK_PORT` and expose it via a reverse proxy.
 > **可选**：如需卡片按钮交互，可在卡片引擎配置中填写回调地址，并通过反向代理暴露 `FEISHU_WEBHOOK_PORT`。
-
-### 5. Get Credentials / 获取凭证
-
-Navigate to **Credentials & Basic Info** to find:
-进入**凭证与基础信息**找到：
-
-- **App ID** → set as `FEISHU_APP_ID`
-- **App Secret** → set as `FEISHU_APP_SECRET`
-
-### 6. Publish the App / 发布应用
-
-Navigate to **App Release → Version Management & Release**, create a version and submit for review.
-After approval, add the bot to your workspace.
-进入**应用发布 → 版本管理与发布**，创建版本并提交审核。审核通过后，将机器人添加到工作区。
-
-> **Note**: Internal apps in trial status can be used by app administrators immediately without review for testing.
-> **注意**：测试阶段，应用管理员可直接使用，无需等待审核通过。
 
 ### Troubleshooting / 故障排除
 
 | Symptom / 现象 | Likely Cause / 可能原因 | Fix / 解决方案 |
 |---|---|---|
 | Bot doesn't receive messages / 机器人收不到消息 | WebSocket not enabled or wrong subscription / 未开启长连接或事件未订阅 | Check event subscription, ensure Long Connection mode is selected / 检查事件订阅，确认选择长连接模式 |
-| "Invalid App ID or Secret" / 凭证错误 | Wrong credentials in .env / .env 中凭证有误 | Double-check App ID and App Secret from Feishu console / 从飞书控制台重新确认凭证 |
+| "Invalid App ID or Secret" / 凭证错误 | Wrong credentials in .env / .env 中凭证有误 | Double-check App ID and App Secret from Step 3 / 从步骤 3 重新确认凭证 |
 | Messages received but no reply / 收到消息但无回复 | opencode server not running / opencode server 未启动 | Ensure `opencode` TUI is running before starting opencode-lark / 确保先启动 opencode TUI |
 | Card not updating in real-time / 卡片不实时更新 | Rate limit or debounce delay / 频率限制或防抖延迟 | Normal behavior — updates are debounced to stay within Feishu rate limits / 正常行为，防抖处理避免触发频率限制 |
+| "应用未建立长连接" when saving Long Connection mode / 保存长连接模式时报"应用未建立长连接" | App not running — Feishu requires an active WebSocket connection before saving / 应用未启动，飞书要求先建立连接 | Start opencode-lark first (Step 6), then save the setting in Feishu console / 先完成步骤 6 启动 opencode-lark，再回飞书后台保存设置 |
 
 ---
 
 ## Quick Start / 快速开始
 
+If you've completed the [Feishu App Setup](#feishu-app-setup--飞书应用配置) above, opencode-lark should already be running. Skip to **Send a test message** below.
+如果已完成上述飞书应用配置，opencode-lark 应该已经在运行。直接跳到下方**发送测试消息**。
+
+Otherwise, follow these steps:
+否则按以下步骤操作：
+
 ### Prerequisites / 前置要求
 
-- **Node.js >= 22** and **[bun](https://bun.sh)**
+- **[Bun](https://bun.sh)** (required runtime — this project uses `bun:sqlite` which is Bun-only)
 - **[opencode](https://opencode.ai)** installed locally
-- A **Feishu Open Platform app** with:
-  - App ID and App Secret
-  - Event subscription `im.message.receive_v1` enabled
-  - Connection mode set to **WebSocket** (long-lived, not webhook polling)
+- A **Feishu Open Platform app** with credentials and event subscriptions configured (see [Feishu App Setup](#feishu-app-setup--飞书应用配置))
 
 ### Steps / 步骤
 
-**1. Clone the repo / 克隆仓库**
+**1. Clone, install, and configure / 克隆、安装并配置**
 
 ```bash
 git clone https://github.com/guazi04/opencode-lark.git
 cd opencode-lark
-```
-
-**2. Install dependencies / 安装依赖**
-
-```bash
 bun install
-```
-
-**3. Configure credentials / 配置凭证**
-
-```bash
 cp .env.example .env
 ```
 
-Open `.env` and fill in your Feishu credentials. At minimum you need `FEISHU_APP_ID` and `FEISHU_APP_SECRET`.
+Open `.env` and fill in `FEISHU_APP_ID` and `FEISHU_APP_SECRET`.
+打开 `.env` 填写 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
 
-打开 `.env` 填写飞书应用凭证，至少需要填 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
-
-**4. Start opencode TUI / 启动 opencode TUI**
-
-Open a terminal in your project directory:
+**2. Start opencode TUI / 启动 opencode TUI**
 
 ```bash
 opencode
@@ -194,24 +224,24 @@ opencode
 The TUI starts an HTTP server on port 4096 automatically (increments if that port is taken).
 TUI 启动后自动在 4096 端口运行 HTTP server，端口被占用时自动递增。
 
-**5. Start opencode-lark / 启动 opencode-lark**
+**3. Start opencode-lark / 启动 opencode-lark**
 
-In a second terminal, run from global install:
-
-```bash
-opencode-lark
-```
-
-Or from source with watch mode / 或从源码以开发模式启动:
+In a second terminal:
 
 ```bash
 bun run dev
 ```
 
+Or from a global install / 或通过全局安装运行:
+
+```bash
+opencode-lark
+```
+
 `dev` mode runs with `--watch`, so code changes trigger an automatic restart.
 `dev` 模式带 `--watch`，代码修改后自动重启。
 
-**6. Send a test message / 发送测试消息**
+**4. Send a test message / 发送测试消息**
 
 Send any message to your Feishu bot. On first contact it auto-discovers the latest TUI session and replies:
 
@@ -251,6 +281,8 @@ After that, Feishu and the TUI share a live two-way channel.
     "webhookPort": 3001,
     "encryptKey": "${FEISHU_ENCRYPT_KEY}"
   },
+  // Default opencode agent name. This should match an agent configured in your opencode setup.
+  // Common values: "build", "claude", "code" — check your opencode config for available agents.
   "defaultAgent": "build",
   "dataDir": "./data",
   "progress": {
