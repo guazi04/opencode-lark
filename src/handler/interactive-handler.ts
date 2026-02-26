@@ -2,24 +2,25 @@
  * Interactive card action handler.
  * Handles question answers and permission replies from Feishu card button clicks,
  * forwarding responses back to the opencode server.
+ *
+ * Feedback to the user is handled by the card callback response (toast + card update)
+ * in ws-client.ts — this module only handles the opencode POST.
  */
 
 import type { Logger } from "../utils/logger.js"
-import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { FeishuCardAction } from "../types.js"
 
 // ── Types ──
 
 export interface InteractiveHandlerDeps {
   serverUrl: string
-  feishuClient: Pick<FeishuApiClient, "replyMessage">
   logger: Logger
 }
 
 // ── Factory ──
 
 export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
-  const { serverUrl, feishuClient, logger } = deps
+  const { serverUrl, logger } = deps
 
   return async (action: FeishuCardAction): Promise<void> => {
     const actionValue = action.action?.value
@@ -28,18 +29,17 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
     const actionType = actionValue.action
 
     if (actionType === "question_answer") {
-      await handleQuestionAnswer(action, actionValue)
+      await handleQuestionAnswer(actionValue)
       return
     }
 
     if (actionType === "permission_reply") {
-      await handlePermissionReply(action, actionValue)
+      await handlePermissionReply(actionValue)
       return
     }
   }
 
   async function handleQuestionAnswer(
-    action: FeishuCardAction,
     value: Record<string, string>,
   ): Promise<void> {
     const { requestId, answers } = value
@@ -64,23 +64,15 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
       })
       if (!resp.ok) {
         logger.warn(`Question reply failed: ${resp.status} ${resp.statusText}`)
+      } else {
+        logger.info(`Question ${requestId} answered: ${parsedAnswers[0]?.[0] ?? ""}`)
       }
     } catch (err) {
       logger.warn(`Question reply request failed: ${err}`)
     }
-
-    try {
-      await feishuClient.replyMessage(action.open_message_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: `✅ Answered: ${parsedAnswers[0]?.[0] ?? ""}` }),
-      })
-    } catch (err) {
-      logger.warn(`Question confirmation reply failed: ${err}`)
-    }
   }
 
   async function handlePermissionReply(
-    action: FeishuCardAction,
     value: Record<string, string>,
   ): Promise<void> {
     const { requestId, reply } = value
@@ -97,24 +89,16 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
       })
       if (!resp.ok) {
         logger.warn(`Permission reply failed: ${resp.status} ${resp.statusText}`)
+      } else {
+        const labelMap: Record<string, string> = {
+          once: "Allowed (once)",
+          always: "Always allowed",
+          reject: "Rejected",
+        }
+        logger.info(`Permission ${requestId}: ${labelMap[reply] ?? reply}`)
       }
     } catch (err) {
       logger.warn(`Permission reply request failed: ${err}`)
-    }
-
-    const labelMap: Record<string, string> = {
-      once: "Allowed (once)",
-      always: "Always allowed",
-      reject: "Rejected",
-    }
-
-    try {
-      await feishuClient.replyMessage(action.open_message_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: `✅ ${labelMap[reply] ?? reply}` }),
-      })
-    } catch (err) {
-      logger.warn(`Permission confirmation reply failed: ${err}`)
     }
   }
 }
