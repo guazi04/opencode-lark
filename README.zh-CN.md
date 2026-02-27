@@ -74,42 +74,22 @@ bun install
 
 - **[Bun](https://bun.sh)**（必需运行时，本项目使用 `bun:sqlite`，仅 Bun 支持）
 - **[opencode](https://opencode.ai)** 已安装在本地
-- 已配置凭证和事件订阅的飞书开放平台应用（参见[飞书应用配置](#飞书应用配置)）
+- 已配置凭证的飞书开放平台应用（参见[飞书应用配置](#飞书应用配置)）
 
 ### 步骤
 
-**1. 安装并配置**
+**1. 安装**
 
 ```bash
-# 全局安装（推荐）
 bun add -g opencode-lark
 # 或：npm install -g opencode-lark
 ```
-
-创建工作目录和 `.env` 文件：
-```bash
-mkdir opencode-lark-config && cd opencode-lark-config
-echo 'FEISHU_APP_ID=your_app_id' >> .env
-echo 'FEISHU_APP_SECRET=your_app_secret' >> .env
-```
-
-或从源码运行：
-```bash
-git clone https://github.com/guazi04/opencode-lark.git
-cd opencode-lark
-bun install
-cp .env.example .env
-```
-
-打开 `.env` 填写 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
 
 **2. 启动 opencode server**
 
 ```bash
 OPENCODE_SERVER_PORT=4096 opencode serve
 ```
-
-opencode server 在 4096 端口监听，端口被占用时自动递增。
 
 **3. 启动 opencode-lark**
 
@@ -119,9 +99,16 @@ opencode server 在 4096 端口监听，端口被占用时自动递增。
 opencode-lark
 ```
 
-如从源码运行：`bun run dev`
+首次运行无配置时，交互式向导将引导你完成：
+- 输入飞书 App ID 和 App Secret（密码遮蔽输入）
+- 验证 opencode server 连通性
+- 保存凭证到 `.env` 文件
 
-`dev` 模式带 `--watch`，代码修改后自动重启。
+配置完成后服务自动启动。
+
+> **提示**：如需重新配置，运行 `opencode-lark init`。
+>
+> 如需手动配置，可在启动前创建 `.env` 文件并填写 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
 
 **4. 发送测试消息**
 
@@ -194,26 +181,16 @@ opencode attach http://127.0.0.1:4096 --session {session_id}
    # cd opencode-lark && bun install
    ```
 
-2. 创建工作目录并配置凭证：
-   ```bash
-   mkdir opencode-lark-config && cd opencode-lark-config
-   ```
-   创建 `.env` 文件填写凭证：
-   ```bash
-   echo 'FEISHU_APP_ID=your_app_id' >> .env
-   echo 'FEISHU_APP_SECRET=your_app_secret' >> .env
-   ```
-
-3. 在一个终端启动 opencode server：
+2. 在一个终端启动 opencode server：
    ```bash
    OPENCODE_SERVER_PORT=4096 opencode serve
    ```
 
-4. 在另一个终端启动 opencode-lark：
+3. 在另一个终端启动 opencode-lark：
    ```bash
    opencode-lark
    ```
-   如从源码运行：`bun run dev`
+   交互式向导会引导你输入凭证并验证服务器连接。如从源码运行：`bun run dev`
 
    保持运行，然后继续下一步配置事件订阅。
 

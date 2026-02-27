@@ -74,42 +74,22 @@ Get up and running in 5 minutes. You'll need a Feishu Open Platform app with bot
 
 - **[Bun](https://bun.sh)** (required runtime — this project uses `bun:sqlite` which is Bun-only)
 - **[opencode](https://opencode.ai)** installed locally
-- A **Feishu Open Platform app** with credentials and event subscriptions configured (see [Feishu App Setup](#feishu-app-setup))
+- A **Feishu Open Platform app** with credentials (see [Feishu App Setup](#feishu-app-setup))
 
 ### Steps
 
-**1. Install and configure**
+**1. Install**
 
 ```bash
-# Global install (recommended)
 bun add -g opencode-lark
 # or: npm install -g opencode-lark
 ```
-
-Create a working directory and `.env` file:
-```bash
-mkdir opencode-lark-config && cd opencode-lark-config
-echo 'FEISHU_APP_ID=your_app_id' >> .env
-echo 'FEISHU_APP_SECRET=your_app_secret' >> .env
-```
-
-Or clone and run from source:
-```bash
-git clone https://github.com/guazi04/opencode-lark.git
-cd opencode-lark
-bun install
-cp .env.example .env
-```
-
-Open `.env` and fill in `FEISHU_APP_ID` and `FEISHU_APP_SECRET`.
 
 **2. Start opencode server**
 
 ```bash
 OPENCODE_SERVER_PORT=4096 opencode serve
 ```
-
-The opencode server listens on port 4096 by default (increments if that port is taken).
 
 **3. Start opencode-lark**
 
@@ -119,9 +99,16 @@ In a second terminal:
 opencode-lark
 ```
 
-If running from source: `bun run dev`
+On first run with no configuration, an interactive setup wizard guides you through:
+- Entering your Feishu App ID and App Secret (masked input)
+- Validating the opencode server connection
+- Saving credentials to a `.env` file
 
-`dev` mode runs with `--watch`, so code changes trigger an automatic restart.
+The service starts automatically after setup completes.
+
+> **Tip**: To re-run the wizard later, use `opencode-lark init`.
+>
+> To configure manually instead, create a `.env` file with `FEISHU_APP_ID` and `FEISHU_APP_SECRET` before starting.
 
 **4. Send a test message**
 
@@ -192,26 +179,16 @@ Before configuring event subscriptions, start opencode-lark so Feishu can detect
    # cd opencode-lark && bun install
    ```
 
-2. Create a working directory and configure credentials:
-   ```bash
-   mkdir opencode-lark-config && cd opencode-lark-config
-   ```
-   Create a `.env` file with your credentials:
-   ```bash
-   echo 'FEISHU_APP_ID=your_app_id' >> .env
-   echo 'FEISHU_APP_SECRET=your_app_secret' >> .env
-   ```
-
-3. Start opencode server in one terminal:
+2. Start opencode server in one terminal:
    ```bash
    OPENCODE_SERVER_PORT=4096 opencode serve
    ```
 
-4. Start opencode-lark in another terminal:
+3. Start opencode-lark in another terminal:
    ```bash
    opencode-lark
    ```
-   If running from source: `bun run dev`
+   The interactive setup wizard will guide you through entering credentials and validating the server connection. If running from source: `bun run dev`
 
    Keep this running while you configure event subscriptions in the next step.
 
