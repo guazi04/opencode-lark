@@ -14,6 +14,7 @@ export interface SessionManager {
   getOrCreate(feishuKey: string, agent?: string): Promise<string>
   getSession(feishuKey: string): SessionMapping | null
   deleteMapping(feishuKey: string): boolean
+  setMapping(feishuKey: string, sessionId: string, agent?: string): boolean
   cleanup(maxAgeMs?: number): number
 }
 
@@ -138,6 +139,16 @@ export function createSessionManager(
       const result = deleteMappingStmt.run(feishuKey)
       if (result.changes > 0) {
         logger.info(`Deleted session mapping for ${feishuKey}`)
+      }
+      return result.changes > 0
+    },
+
+    setMapping(feishuKey, sessionId, agent) {
+      const agentName = agent ?? defaultAgent
+      const now = Date.now()
+      const result = upsertStmt.run(feishuKey, sessionId, agentName, now, now, 1)
+      if (result.changes > 0) {
+        logger.info(`Set session mapping: ${feishuKey} → ${sessionId}`)
       }
       return result.changes > 0
     },

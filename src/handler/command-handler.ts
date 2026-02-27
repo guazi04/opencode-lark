@@ -33,6 +33,41 @@ interface Session {
   title?: string
 }
 
+// ── Card builders ──
+
+function buildSessionsCard(sessions: Session[]): Record<string, unknown> {
+  const recentSessions = sessions.slice(0, 10)
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: "📋 选择会话",
+      },
+      template: "blue",
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: "**点击连接到对应会话：**",
+      },
+      ...recentSessions.map((s) => ({
+        tag: "action",
+        actions: [
+          {
+            tag: "button",
+            text: {
+              tag: "plain_text",
+              content: `${s.title ? s.title + " — " : ""}${s.id}`,
+            },
+            value: { action: "command_execute", command: `/connect ${s.id}` },
+          },
+        ],
+      })),
+    ],
+  }
+}
+
 // ── Help card builder ──
 
 function buildHelpCard(): Record<string, unknown> {
@@ -61,7 +96,7 @@ function buildHelpCard(): Record<string, unknown> {
           },
           {
             tag: "button",
-            text: { tag: "plain_text", content: "📋 会话列表" },
+            text: { tag: "plain_text", content: "🔌 连接会话" },
             value: { action: "command_execute", command: "/sessions" },
           },
           {
@@ -162,10 +197,37 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
       return
     }
 
-    const lines = sessions.map(
-      (s, i) => `${i + 1}. ${s.id}${s.title ? ` — ${s.title}` : ""}`,
-    )
-    await replyText(chatId, messageId, `会话列表:\n${lines.join("\n")}`)
+    const card = buildSessionsCard(sessions)
+    await feishuClient.replyMessage(messageId, {
+      msg_type: "interactive",
+      content: JSON.stringify(card),
+    })
+  }
+
+  async function handleConnect(
+    feishuKey: string,
+    chatId: string,
+    messageId: string,
+    targetSessionId: string,
+  ): Promise<void> {
+    // Validate session exists
+    const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`)
+    if (!checkResp.ok) {
+      await replyText(chatId, messageId, "会话不存在。")
+      return
+    }
+
+    // Unbind current mapping if exists
+    sessionManager.deleteMapping(feishuKey)
+
+    // Set new mapping
+    const success = sessionManager.setMapping(feishuKey, targetSessionId)
+    if (success) {
+      logger.info(`/connect: bound ${feishuKey} to session ${targetSessionId}`)
+      await replyText(chatId, messageId, `已连接到会话: ${targetSessionId}`)
+    } else {
+      throw new Error("Failed to set session mapping")
+    }
   }
 
   async function handleSessionCommand(
@@ -239,6 +301,16 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
         case "/sessions":
           await handleSessions(chatId, messageId)
           return true
+
+        case "/connect": {
+          const targetSessionId = parts[1]
+          if (!targetSessionId) {
+            await replyText(chatId, messageId, "用法: /connect {session_id}")
+            return true
+          }
+          await handleConnect(feishuKey, chatId, messageId, targetSessionId)
+          return true
+        }
 
         case "/compact":
           await handleSessionCommand(feishuKey, chatId, messageId, "session.compact")

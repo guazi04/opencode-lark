@@ -11,6 +11,7 @@ function createMockSessionManager(
     getOrCreate: vi.fn().mockResolvedValue(mapping?.session_id ?? "ses-new"),
     getSession: vi.fn().mockReturnValue(mapping),
     deleteMapping: vi.fn().mockReturnValue(true),
+    setMapping: vi.fn().mockReturnValue(true),
     cleanup: vi.fn().mockReturnValue(0),
   }
 }
@@ -123,7 +124,7 @@ describe("createCommandHandler", () => {
   })
 
   describe("/sessions", () => {
-    it("lists all sessions", async () => {
+    it("sends interactive card with session buttons", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -140,14 +141,22 @@ describe("createCommandHandler", () => {
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledWith("http://test:4096/session")
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
-        msg_type: "text",
-        content: JSON.stringify({
-          text: "会话列表:\n1. ses-1 — Chat A\n2. ses-2",
-        }),
+        msg_type: "interactive",
+        content: expect.any(String),
       })
+      // Verify card structure
+      const callArgs = mockFeishuClient.replyMessage.mock.calls[0]
+      const content = JSON.parse(callArgs?.[1]?.content as string)
+      expect(content).toHaveProperty("config")
+      expect(content).toHaveProperty("header")
+      expect(content).toHaveProperty("elements")
+      expect(content.header?.title?.content).toContain("选择会话")
+      // Verify buttons are created for each session
+      const actionElements = content.elements?.filter((e: any) => e.tag === "action")
+      expect(actionElements).toHaveLength(2)
     })
 
-    it("replies when no sessions exist", async () => {
+    it("replies with text when no sessions exist", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([]),
@@ -161,6 +170,58 @@ describe("createCommandHandler", () => {
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "text",
         content: JSON.stringify({ text: "暂无会话。" }),
+      })
+    })
+  })
+
+  describe("/connect", () => {
+    it("connects to a valid session", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({ ok: true })
+      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
+
+      const handler = createHandler()
+      const result = await handler("chat-1", "chat-1", "msg-1", "/connect ses-456")
+
+      expect(result).toBe(true)
+      // First fetch: validate session exists
+      expect(mockFetch).toHaveBeenNthCalledWith(1, "http://test:4096/session/ses-456")
+      // deleteMapping called
+      expect(mockSessionManager.deleteMapping).toHaveBeenCalledWith("chat-1")
+      // setMapping called
+      expect(mockSessionManager.setMapping).toHaveBeenCalledWith("chat-1", "ses-456")
+      expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
+        msg_type: "text",
+        content: JSON.stringify({ text: "已连接到会话: ses-456" }),
+      })
+    })
+
+    it("replies when session does not exist", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
+      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
+
+      const handler = createHandler()
+      const result = await handler("chat-1", "chat-1", "msg-1", "/connect ses-invalid")
+
+      expect(result).toBe(true)
+      expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
+        msg_type: "text",
+        content: JSON.stringify({ text: "会话不存在。" }),
+      })
+    })
+
+    it("replies with usage when session_id is missing", async () => {
+      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
+
+      const handler = createHandler()
+      const result = await handler("chat-1", "chat-1", "msg-1", "/connect")
+
+      expect(result).toBe(true)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
+        msg_type: "text",
+        content: JSON.stringify({ text: "用法: /connect {session_id}" }),
       })
     })
   })
@@ -235,10 +296,10 @@ describe("createCommandHandler", () => {
       // Verify the card has full structure: config, header, elements
       const callArgs = mockFeishuClient.replyMessage.mock.calls[0]
       const content = JSON.parse(callArgs?.[1]?.content as string)
-      expect(content).toHaveProperty('config')
-      expect(content).toHaveProperty('header')
-      expect(content).toHaveProperty('elements')
-      expect(content.header?.title?.content).toContain('命令菜单')
+      expect(content).toHaveProperty("config")
+      expect(content).toHaveProperty("header")
+      expect(content).toHaveProperty("elements")
+      expect(content.header?.title?.content).toContain("命令菜单")
     })
 
     it("/ alone sends interactive card", async () => {
@@ -255,11 +316,10 @@ describe("createCommandHandler", () => {
       // Verify the card has full structure
       const callArgs = mockFeishuClient.replyMessage.mock.calls[0]
       const content = JSON.parse(callArgs?.[1]?.content as string)
-      expect(content).toHaveProperty('config')
-      expect(content).toHaveProperty('header')
-      expect(content).toHaveProperty('elements')
+      expect(content).toHaveProperty("config")
+      expect(content).toHaveProperty("header")
+      expect(content).toHaveProperty("elements")
     })
-
   })
 
   describe("unknown command", () => {
