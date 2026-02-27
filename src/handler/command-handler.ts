@@ -37,10 +37,18 @@ interface Session {
 
 function buildHelpCard(): Record<string, unknown> {
   return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: "⚡ 命令菜单",
+      },
+      template: "blue",
+    },
     elements: [
       {
         tag: "markdown",
-        content: "**选择命令：**",
+        content: "**选择要执行的命令：**",
       },
       {
         tag: "action",

@@ -230,8 +230,15 @@ describe("createCommandHandler", () => {
       expect(result).toBe(true)
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "interactive",
-        content: expect.stringContaining("选择命令"),
+        content: expect.any(String),
       })
+      // Verify the card has full structure: config, header, elements
+      const callArgs = mockFeishuClient.replyMessage.mock.calls[0]
+      const content = JSON.parse(callArgs?.[1]?.content as string)
+      expect(content).toHaveProperty('config')
+      expect(content).toHaveProperty('header')
+      expect(content).toHaveProperty('elements')
+      expect(content.header?.title?.content).toContain('命令菜单')
     })
 
     it("/ alone sends interactive card", async () => {
@@ -243,9 +250,16 @@ describe("createCommandHandler", () => {
       expect(result).toBe(true)
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "interactive",
-        content: expect.stringContaining("command_execute"),
+        content: expect.any(String),
       })
+      // Verify the card has full structure
+      const callArgs = mockFeishuClient.replyMessage.mock.calls[0]
+      const content = JSON.parse(callArgs?.[1]?.content as string)
+      expect(content).toHaveProperty('config')
+      expect(content).toHaveProperty('header')
+      expect(content).toHaveProperty('elements')
     })
+
   })
 
   describe("unknown command", () => {
