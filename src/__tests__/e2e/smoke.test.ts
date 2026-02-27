@@ -2,17 +2,16 @@
  * End-to-end smoke tests for the full opencode-lark pipeline.
  *
  * Exercises real module instantiation with fetch-level mocking.
- * 8 scenarios across 2 suites:
+ * 7 scenarios across 2 suites:
  *   Suite 1 – Core pipeline:
  *     1. Basic message flow:  Feishu event → handler → opencode POST → SSE → streaming card → close
  *     2. Sub-agent flow:      Message triggers subtask → SubtaskDiscovered → button → child messages
- *     3. Memory flow:         Message → memory saved → related message → memory context injected
- *     4. Error flow:          opencode returns error → error card sent
+ *     3. Error flow:          opencode returns error → error card sent
  *   Suite 2 – Session sharing:
- *     5. Session discovery + bind notification
- *     6. Feishu-initiated message processed correctly (observer skips owned)
- *     7. TUI-initiated message forwarded to Feishu
- *     8. Session reuse — no duplicate bind notification
+ *     4. Session discovery + bind notification
+ *     5. Feishu-initiated message processed correctly (observer skips owned)
+ *     6. TUI-initiated message forwarded to Feishu
+ *     7. Session reuse — no duplicate bind notification
  */
 
 import { addListener } from "../../utils/event-listeners.js"
@@ -27,7 +26,6 @@ import { createMockLogger, createMockFeishuClient } from "../setup.js"
 import type { CardKitClient } from "../../feishu/cardkit-client.js"
 import type { FeishuMessageEvent } from "../../types.js"
 import type { SessionManager } from "../../session/session-manager.js"
-import type { MemoryManager, MemorySearchResult } from "../../memory/memory-manager.js"
 import type { ProgressTracker } from "../../session/progress-tracker.js"
 
 // ═══════════════════════════════════════════
@@ -78,31 +76,6 @@ function createMockProgressTracker(): ProgressTracker {
   }
 }
 
-function createMockMemoryManager(): MemoryManager & {
-  _saved: Array<{ sessionId: string; content: string }>
-} {
-  const saved: Array<{ sessionId: string; content: string }> = []
-  let searchResults: MemorySearchResult[] = []
-
-  return {
-    _saved: saved,
-    saveMemory: vi.fn((sessionId: string, content: string) => {
-      saved.push({ sessionId, content })
-    }),
-    searchMemory: vi.fn((query: string) => {
-      // After first save, return saved content as search results for related queries
-      if (saved.length > 0 && searchResults.length === 0) {
-        // Auto-populate search results from saved memories
-        searchResults = saved.map((s, i) => ({
-          session_id: s.sessionId,
-          snippet: s.content,
-          rank: i + 1,
-        }))
-      }
-      return searchResults
-    }),
-  }
-}
 
 // ═══════════════════════════════════════════
 // Test suite
@@ -155,7 +128,6 @@ describe("E2E Smoke Tests", () => {
       msg: "ok",
     })
     const progressTracker = createMockProgressTracker()
-    const memoryManager = createMockMemoryManager()
     const sessionManager = createMockSessionManager(sessionId)
 
     // Mock fetch: opencode POST /session/{id}/message → 200 OK
@@ -177,7 +149,6 @@ describe("E2E Smoke Tests", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager,
-      memoryManager,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -245,15 +216,6 @@ describe("E2E Smoke Tests", () => {
     // Verify listener was cleaned up
     expect(eventListeners.size).toBe(0)
 
-    // Verify memory was saved with Q&A
-    expect(memoryManager.saveMemory).toHaveBeenCalledWith(
-      sessionId,
-      expect.stringContaining("Q: Hello from e2e"),
-    )
-    expect(memoryManager.saveMemory).toHaveBeenCalledWith(
-      sessionId,
-      expect.stringContaining("A: Hello World!"),
-    )
   })
 
   // ─────────────────────────────────────────
@@ -303,7 +265,7 @@ describe("E2E Smoke Tests", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager: createMockMemoryManager(),
+      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -376,120 +338,6 @@ describe("E2E Smoke Tests", () => {
     // With lazy card creation, card was never created (only text and subtask events, no tool events), so no close needed
   })
 
-  // ─────────────────────────────────────────
-  // Scenario 3: Memory flow
-  // ─────────────────────────────────────────
-
-  it("memory flow: message → save memory → related message → memory context injected", async () => {
-    const sessionId = "ses-memory-1"
-    const ownedSessions = new Set<string>()
-    const eventListeners: EventListenerMap = new Map()
-    const logger = createMockLogger()
-    const feishuClient = createMockFeishuClient()
-    const memoryManager = createMockMemoryManager()
-
-    // No streaming bridge — test via event-driven fallback path
-    // This tests the handler's own event-driven flow (not streaming bridge)
-
-    // Mock fetch: POST /session/{id}/message → 200 OK
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(""),
-    }) as any
-
-    const eventProcessor = new EventProcessor({ ownedSessions })
-    const progressTracker = createMockProgressTracker()
-
-    const deps: HandlerDeps = {
-      serverUrl: "http://127.0.0.1:4096",
-      sessionManager: createMockSessionManager(sessionId),
-      memoryManager,
-      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
-      eventProcessor,
-      feishuClient,
-      progressTracker,
-      eventListeners,
-      ownedSessions,
-      logger,
-      // No streamingBridge — falls through to event-driven flow
-    }
-
-    const handleMessage = createMessageHandler(deps)
-
-    // ── First message: no memory context ──
-    const event1 = makeFeishuEvent({
-      event_id: "evt-mem-1",
-      message: { message_type: "text", content: JSON.stringify({ text: "What is TypeScript?" }) },
-    })
-
-    const promise1 = handleMessage(event1)
-
-    await vi.waitFor(() => {
-      expect(eventListeners.size).toBe(1)
-    })
-
-    // Verify first message has NO memory context
-    const firstFetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!
-    const firstBody = JSON.parse(firstFetchCall[1].body as string)
-    expect(firstBody.parts[0].text).toBe("What is TypeScript?")
-    expect(firstBody.parts[0].text).not.toContain("[Memory Context]")
-
-    // Complete first session via SSE
-    const listener1 = [...eventListeners.get(sessionId)!][0]!
-    listener1({
-      type: "message.part.updated",
-      properties: {
-        part: { sessionID: sessionId, messageID: "m-1", type: "text", text: "TS is..." },
-        delta: "TypeScript is a typed superset of JavaScript.",
-      },
-    })
-    listener1({
-      type: "session.status",
-      properties: { sessionID: sessionId, status: { type: "idle" } },
-    })
-
-    await promise1
-
-    // Verify memory was saved
-    expect(memoryManager.saveMemory).toHaveBeenCalledWith(
-      sessionId,
-      expect.stringContaining("Q: What is TypeScript?"),
-    )
-    expect(memoryManager._saved.length).toBe(1)
-
-    // ── Second message: should include memory context ──
-    // searchMemory will now return saved content (auto-populated)
-    const event2 = makeFeishuEvent({
-      event_id: "evt-mem-2",
-      message: { message_type: "text", content: JSON.stringify({ text: "Tell me more about TypeScript" }) },
-    })
-
-    const promise2 = handleMessage(event2)
-
-    await vi.waitFor(() => {
-      expect(eventListeners.size).toBe(1)
-    })
-
-    // Verify second message includes memory context
-    const secondFetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]!
-    const secondBody = JSON.parse(secondFetchCall[1].body as string)
-    expect(secondBody.parts[0].text).toContain("[Memory Context]")
-    expect(secondBody.parts[0].text).toContain("Q: What is TypeScript?")
-    expect(secondBody.parts[0].text).toContain("[User Message]")
-    expect(secondBody.parts[0].text).toContain("Tell me more about TypeScript")
-
-    // Complete second session
-    const listener2 = [...eventListeners.get(sessionId)!][0]!
-    listener2({
-      type: "session.status",
-      properties: { sessionID: sessionId, status: { type: "idle" } },
-    })
-
-    await promise2
-
-    // Verify memory search was called for second message
-    expect(memoryManager.searchMemory).toHaveBeenCalledWith("Tell me more about TypeScript")
-  })
 
   // ─────────────────────────────────────────
   // Scenario 4: Error flow
@@ -515,7 +363,7 @@ describe("E2E Smoke Tests", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager: createMockMemoryManager(),
+      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -545,10 +393,6 @@ describe("E2E Smoke Tests", () => {
       expect.stringContaining("Prompt HTTP error: 500"),
     )
 
-    // Verify memory was NOT saved (error path)
-    const memoryMock = createMockMemoryManager()
-    expect(memoryMock._saved.length).toBe(0)
-  })
 })
 
 // ═══════════════════════════════════════════
@@ -589,7 +433,6 @@ describe("session sharing", () => {
     const logger = createMockLogger()
     const feishuClient = createMockFeishuClient()
     ;(feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, msg: "ok", data: { message_id: "lark-share-1" } })
-    const memoryManager = createMockMemoryManager()
     const progressTracker = createMockProgressTracker()
 
     // Mock fetch:
@@ -614,7 +457,7 @@ describe("session sharing", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager,
+      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -683,7 +526,6 @@ describe("session sharing", () => {
     const logger = createMockLogger()
     const feishuClient = createMockFeishuClient()
     ;(feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, msg: "ok", data: { message_id: "lark-share-2" } })
-    const memoryManager = createMockMemoryManager()
     const progressTracker = createMockProgressTracker()
 
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -706,7 +548,6 @@ describe("session sharing", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -773,7 +614,6 @@ describe("session sharing", () => {
     const logger = createMockLogger()
     const feishuClient = createMockFeishuClient()
     ;(feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, msg: "ok", data: { message_id: "lark-share-3" } })
-    const memoryManager = createMockMemoryManager()
     const progressTracker = createMockProgressTracker()
 
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -796,7 +636,6 @@ describe("session sharing", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -875,7 +714,6 @@ describe("session sharing", () => {
     const logger = createMockLogger()
     const feishuClient = createMockFeishuClient()
     ;(feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, msg: "ok", data: { message_id: "lark-share-4" } })
-    const memoryManager = createMockMemoryManager()
     const progressTracker = createMockProgressTracker()
 
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -898,7 +736,6 @@ describe("session sharing", () => {
     const handleMessage = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      memoryManager,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -980,6 +817,8 @@ describe("session sharing", () => {
     expect(bindCalls2.length).toBe(1)
 
     // Session manager should have been called for both messages (cache is in session-manager)
+    // but getOrCreate is mocked and always returns same sessionId
+  })
     // but getOrCreate is mocked and always returns same sessionId
   })
 })

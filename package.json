@@ -27,7 +27,7 @@
     "CHANGELOG.md"
   ],
   "bin": {
-    "opencode-lark": "./bin/opencode-lark.js"
+    "opencode-lark": "bin/opencode-lark.js"
   },
   "scripts": {
     "start": "bun run src/index.ts",

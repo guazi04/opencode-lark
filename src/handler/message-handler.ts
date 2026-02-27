@@ -7,7 +7,6 @@
  */
 
 import type { SessionManager } from "../session/session-manager.js"
-import type { MemoryManager } from "../memory/memory-manager.js"
 import type { MessageDedup } from "../feishu/message-dedup.js"
 import type { EventProcessor } from "../streaming/event-processor.js"
 import type { FeishuApiClient } from "../feishu/api-client.js"
@@ -24,7 +23,6 @@ import { addListener, removeListener } from "../utils/event-listeners.js"
 export interface HandlerDeps {
   serverUrl: string
   sessionManager: SessionManager
-  memoryManager: MemoryManager
   dedup: MessageDedup
   eventProcessor: EventProcessor
   feishuClient: FeishuApiClient
@@ -48,7 +46,6 @@ export function createMessageHandler(
   const {
     serverUrl,
     sessionManager,
-    memoryManager,
     dedup,
     eventProcessor,
     feishuClient,
@@ -129,22 +126,10 @@ export function createMessageHandler(
       deps.observer.observe(sessionId, event.chat_id)
     }
 
-    // ── 7. Memory search + build parts ──
-    const memoryResults = memoryManager.searchMemory(userText)
-    const memoryContext =
-      memoryResults.length > 0
-        ? memoryResults.map((r) => r.snippet).join("\n")
-        : ""
-
-    const parts: Array<{ type: string; text: string }> = []
-    if (memoryContext) {
-      parts.push({
-        type: "text",
-        text: `[Memory Context]\n${memoryContext}\n\n[User Message]\n${userText}`,
-      })
-    } else {
-      parts.push({ type: "text", text: userText })
-    }
+    // ── 7. Build parts ──
+    const parts: Array<{ type: string; text: string }> = [
+      { type: "text", text: userText },
+    ]
 
     // ── 8. Build the POST-to-opencode function ──
     const promptUrl = `${serverUrl}/session/${sessionId}/message`
@@ -191,10 +176,6 @@ export function createMessageHandler(
           postToOpencode,
           (responseText: string) => {
             if (ownershipListener) removeListener(eventListeners, sessionId, ownershipListener)
-            memoryManager.saveMemory(
-              sessionId,
-              `Q: ${userText}\nA: ${responseText.slice(0, 500)}`,
-            )
           },
           event.message_id,
           reactionId,
@@ -318,11 +299,7 @@ export function createMessageHandler(
 
             const responseText = textBuffer.trim() || "（无回复）"
 
-            // Save memory + send response
-            memoryManager.saveMemory(
-              sessionId,
-              `Q: ${userText}\nA: ${responseText.slice(0, 500)}`,
-            )
+            // Send response
 
             sendResponse(responseText, event, thinkingMessageId)
               .then(resolve)
@@ -400,10 +377,6 @@ export function createMessageHandler(
         .join("\n")
         .trim() || "（无回复）"
 
-    memoryManager.saveMemory(
-      sessionId,
-      `Q: ${userText}\nA: ${responseText.slice(0, 500)}`,
-    )
 
     await sendResponse(responseText, event, thinkingMessageId)
   }
