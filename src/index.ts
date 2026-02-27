@@ -2,6 +2,8 @@
  * OhMyOpenclaw — Feishu channel integration for opencode.
  *
  * Standalone process entry point:
+ *   0. Load .env + interactive setup wizard (first run)
+ *   1. Load config
  *   1. Load config
  *   2. Connect to existing opencode server (createOpencodeClient)
  *   3. Initialize SQLite database
@@ -39,10 +41,22 @@ import { FeishuPlugin } from "./channel/feishu/feishu-plugin.js"
 import { ChannelManager } from "./channel/manager.js"
 import { CronService } from "./cron/cron-service.js"
 import { HeartbeatService } from "./cron/heartbeat.js"
+import { loadEnvFile } from "./utils/env-loader.js"
+import { needsSetup, runSetupWizard } from "./cli/setup-wizard.js"
 
 const logger = createLogger("opencode-lark")
 
 async function main(): Promise<void> {
+  // ═══════════════════════════════════════════
+  // Phase 0: Load .env + Setup Wizard
+  // ═══════════════════════════════════════════
+  loadEnvFile()
+
+  const forceInit = process.argv.includes("init")
+  if (forceInit || await needsSetup()) {
+    await runSetupWizard()
+  }
+
   // ═══════════════════════════════════════════
   // Phase 1: Load Config
   // ═══════════════════════════════════════════
@@ -51,7 +65,8 @@ async function main(): Promise<void> {
 
   if (!config.feishu.appId || !config.feishu.appSecret) {
     logger.error(
-      "Feishu credentials missing. Set FEISHU_APP_ID and FEISHU_APP_SECRET.",
+      "Feishu credentials missing. Run `opencode-lark init` to configure, " +
+      "or set FEISHU_APP_ID and FEISHU_APP_SECRET environment variables.",
     )
     process.exit(1)
   }
