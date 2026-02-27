@@ -36,10 +36,6 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       getSession: vi.fn().mockReturnValue(null),
       cleanup: vi.fn().mockReturnValue(0),
     },
-    memoryManager: {
-      saveMemory: vi.fn(),
-      searchMemory: vi.fn().mockReturnValue([]),
-    },
     dedup: {
       isDuplicate: vi.fn().mockReturnValue(false),
       close: vi.fn(),
@@ -186,10 +182,6 @@ describe("createMessageHandler", () => {
     expect(deps.progressTracker.updateWithResponse).toHaveBeenCalledWith(
       "thinking-msg-1",
       "Hello World",
-    )
-    expect(deps.memoryManager.saveMemory).toHaveBeenCalledWith(
-      "ses-1",
-      expect.stringContaining("Q: Hello"),
     )
   })
 
@@ -353,37 +345,6 @@ describe("createMessageHandler", () => {
     )
   })
 
-  it("includes memory context in message parts when memory results exist", async () => {
-    mockFetchOk("")
-    const deps = makeDeps({
-      memoryManager: {
-        saveMemory: vi.fn(),
-        searchMemory: vi.fn().mockReturnValue([
-          { session_id: "ses-old", snippet: "previous context", rank: 1 },
-        ]),
-      },
-    })
-    const handler = createMessageHandler(deps)
-
-    const handlerPromise = handler(makeEvent())
-
-    await vi.waitFor(() => {
-      expect(deps.eventListeners.size).toBe(1)
-    })
-
-    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
-      type: "session.status",
-      properties: { sessionID: "ses-1", status: { type: "idle" } },
-    }))
-
-    await handlerPromise
-
-    const fetchCall = (globalThis.fetch as any).mock.calls[0]
-    const body = JSON.parse(fetchCall[1].body)
-    expect(body.parts[0].text).toContain("[Memory Context]")
-    expect(body.parts[0].text).toContain("previous context")
-    expect(body.parts[0].text).toContain("[User Message]")
-  })
 
   it("sends bind notification on first message for a feishuKey", async () => {
     mockFetchOk("")

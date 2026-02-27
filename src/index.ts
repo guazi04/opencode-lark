@@ -26,7 +26,6 @@ import { CardKitClient } from "./feishu/cardkit-client.js"
 import { MessageDedup } from "./feishu/message-dedup.js"
 import { createSessionManager } from "./session/session-manager.js"
 import { createProgressTracker } from "./session/progress-tracker.js"
-import { createMemoryManager } from "./memory/memory-manager.js"
 import { EventProcessor } from "./streaming/event-processor.js"
 import { SubAgentTracker } from "./streaming/subagent-tracker.js"
 import { createMessageHandler } from "./handler/message-handler.js"
@@ -42,19 +41,26 @@ import { ChannelManager } from "./channel/manager.js"
 import { CronService } from "./cron/cron-service.js"
 import { HeartbeatService } from "./cron/heartbeat.js"
 import { loadEnvFile } from "./utils/env-loader.js"
-import { needsSetup, runSetupWizard } from "./cli/setup-wizard.js"
+import { needsSetup, runSetupWizard, pickConfig } from "./cli/setup-wizard.js"
 
 const logger = createLogger("opencode-lark")
 
 async function main(): Promise<void> {
   // ═══════════════════════════════════════════
-  // Phase 0: Load .env + Setup Wizard
+  // Phase 0: Config Selection
   // ═══════════════════════════════════════════
-  loadEnvFile()
-
   const forceInit = process.argv.includes("init")
-  if (forceInit || await needsSetup()) {
+
+  if (forceInit) {
     await runSetupWizard()
+  } else {
+    const configPath = await pickConfig()
+    if (configPath) {
+      loadEnvFile(configPath)
+    } else if (await needsSetup()) {
+      await runSetupWizard()
+    }
+    // If needsSetup() is false (env vars already set externally), proceed without loading file
   }
 
   // ═══════════════════════════════════════════
@@ -138,8 +144,6 @@ async function main(): Promise<void> {
 
   const progressTracker = createProgressTracker({ feishuClient })
 
-  const memoryManager = createMemoryManager({ db: db.memory })
-
   const ownedSessions = new Set<string>()
   const eventListeners: EventListenerMap = new Map()
   const seenInteractiveIds = new Set<string>()
@@ -168,7 +172,6 @@ async function main(): Promise<void> {
   const handleMessage = createMessageHandler({
     serverUrl,
     sessionManager,
-    memoryManager,
     dedup,
     eventProcessor,
     feishuClient,

@@ -7,6 +7,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as readline from "node:readline/promises"
 import { createLogger } from "../utils/logger.js"
+import { listEnvFiles, ensureConfigDir, CONFIG_DIR } from "../utils/env-loader.js"
 
 const logger = createLogger("setup-wizard")
 
@@ -26,16 +27,19 @@ const CONFIG_SEARCH_PATHS = [
 
 /**
  * Check whether interactive setup is needed.
- * Returns true only when no config exists, no env credentials are set,
- * and stdin is a TTY (so we can prompt).
+ * Returns true only when no env files exist in CONFIG_DIR, no env credentials are set,
+ * no config files exist in cwd, and stdin is a TTY (so we can prompt).
  */
 export async function needsSetup(): Promise<boolean> {
-  // 1. Config file exists → no setup needed
+  // 1. Env files exist in CONFIG_DIR → no setup needed
+  if (listEnvFiles().length > 0) return false
+
+  // 2. Config file exists in cwd → no setup needed
   for (const p of CONFIG_SEARCH_PATHS) {
     if (fs.existsSync(p)) return false
   }
 
-  // 2. Env vars already provide credentials → no setup needed
+  // 3. Env vars already provide credentials → no setup needed
   if (
     process.env.FEISHU_APP_ID &&
     process.env.FEISHU_APP_ID.length > 0 &&
@@ -45,7 +49,7 @@ export async function needsSetup(): Promise<boolean> {
     return false
   }
 
-  // 3. Non-interactive environment → skip
+  // 4. Non-interactive environment → skip
   if (process.stdin.isTTY !== true) return false
 
   return true
@@ -110,6 +114,51 @@ function readSecret(prompt: string): Promise<string> {
 }
 
 /**
+ * Interactive config picker for multiple Feishu accounts.
+ * Returns the selected env file path, or null if no configs exist.
+ */
+export async function pickConfig(): Promise<string | null> {
+  const envFiles = listEnvFiles()
+
+  if (envFiles.length === 0) return null
+
+  if (envFiles.length === 1) {
+    const first = envFiles[0]!
+    process.stdout.write(`Auto-selecting config: ${first.appId}\n`)
+    return first.filePath
+  }
+
+  // Multiple configs — show picker
+  process.stdout.write("\nAvailable configurations:\n")
+  for (let i = 0; i < envFiles.length; i++) {
+    process.stdout.write(`  ${i + 1}. ${envFiles[i]!.appId}\n`)
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  try {
+    const answer = await rl.question(`Select [1]: `)
+    const trimmed = answer.trim()
+    const index = trimmed === "" ? 0 : parseInt(trimmed, 10) - 1
+
+    if (isNaN(index) || index < 0 || index >= envFiles.length) {
+      process.stdout.write(red("Invalid selection, using first config.\n"))
+      return envFiles[0]!.filePath
+    }
+
+    return envFiles[index]!.filePath
+  } catch {
+    // Ctrl+C or other error
+    return envFiles[0]!.filePath
+  } finally {
+    rl.close()
+  }
+}
+
+/**
  * Run the 4-step interactive setup wizard.
  */
 export async function runSetupWizard(): Promise<void> {
@@ -124,8 +173,8 @@ export async function runSetupWizard(): Promise<void> {
       `\n${bold("🚀 Welcome to opencode-lark!")}\n\nNo configuration found. Let's set things up.\n\n`,
     )
 
-    // ── Step 1/4: Feishu Credentials ──
-    process.stdout.write(dim("Step 1/4: Feishu Credentials") + "\n")
+    // ── Step 1/3: Feishu Credentials ──
+    process.stdout.write(dim("Step 1/3: Feishu Credentials") + "\n")
 
     let appId = ""
     while (!appId) {
@@ -155,8 +204,8 @@ export async function runSetupWizard(): Promise<void> {
     })
 
     try {
-      // ── Step 2/4: opencode Server ──
-      process.stdout.write(dim("Step 2/4: opencode Server") + "\n")
+      // ── Step 2/3: opencode Server ──
+      process.stdout.write(dim("Step 2/3: opencode Server") + "\n")
 
       const DEFAULT_URL = "http://localhost:4096"
       const urlInput = (
@@ -183,14 +232,11 @@ export async function runSetupWizard(): Promise<void> {
         }
       }
 
-      // ── Step 3/4: Save Configuration ──
-      process.stdout.write(dim("Step 3/4: Save Configuration") + "\n")
+      // ── Step 3/3: Save Configuration ──
+      process.stdout.write(dim("Step 3/3: Save Configuration") + "\n")
 
-      const DEFAULT_ENV_PATH = "./.env"
-      const envPathInput = (
-        await rl2.question(`  Save .env to [${DEFAULT_ENV_PATH}]: `)
-      ).trim()
-      const envPath = envPathInput || DEFAULT_ENV_PATH
+      ensureConfigDir()
+      const envPath = path.join(CONFIG_DIR, `.env.${appId}`)
 
       // Build .env content
       const lines: string[] = [
@@ -201,7 +247,7 @@ export async function runSetupWizard(): Promise<void> {
         lines.push(`OPENCODE_SERVER_URL=${serverUrl}`)
       }
 
-      fs.writeFileSync(path.resolve(envPath), lines.join("\n") + "\n", "utf-8")
+      fs.writeFileSync(envPath, lines.join("\n") + "\n", "utf-8")
       process.stdout.write(green(`  ✓ Configuration saved to ${envPath}`) + "\n")
 
       // Set on process.env so loadConfig() picks them up immediately
@@ -213,7 +259,7 @@ export async function runSetupWizard(): Promise<void> {
 
       logger.info("Setup wizard completed, .env written to %s", envPath)
 
-      // ── Step 4/4: Starting ──
+      // ── Starting ──
       process.stdout.write(`\n${bold("Starting opencode-lark...")}\n\n`)
     } finally {
       rl2.close()

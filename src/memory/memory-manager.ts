@@ -47,7 +47,7 @@ export function createMemoryManager(options: MemoryManagerOptions): MemoryManage
   )
 
   const searchStmt = db.prepare(`
-    SELECT session_id, snippet(memory_fts, 1, '<b>', '</b>', '...', 64) as snippet, rank
+    SELECT session_id, snippet(memory_fts, 1, '', '', '...', 64) as snippet, rank
     FROM memory_fts
     WHERE memory_fts MATCH ?
     ORDER BY rank

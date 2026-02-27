@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.3] - 2026-02-26
+
+### Fixed
+
+- Shebang changed from `#!/usr/bin/env node` to `#!/usr/bin/env bun` — project requires Bun runtime (`bun:sqlite`)
+
+## [0.1.2] - 2026-02-26
+
+### Added
+
+- Interactive CLI setup wizard: first-run experience guides new users through credential entry, server validation, `.env` creation, and auto-start
+- `opencode-lark init` command to re-run the setup wizard at any time
+- Minimal `.env` file parser (`loadEnvFile`) — loads environment variables before config phase
+
+### Changed
+
+- Startup Phase 0 added: env file loading + setup wizard check before normal boot sequence
+- `needsSetup()` only triggers when no config file exists, credentials are missing, AND stdin is a TTY
+
+### Docs
+
+- READMEs updated: setup wizard shown as primary Quick Start path
+- Added `opencode-lark init` tip for re-running wizard
+
 ## [0.1.1] - 2026-02-26
 
 ### Added

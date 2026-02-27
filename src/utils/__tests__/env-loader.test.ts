@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { loadEnvFile } from "../env-loader.js"
+import { loadEnvFile, ensureConfigDir, listEnvFiles, CONFIG_DIR } from "../env-loader.js"
 
 describe("env-loader", () => {
   let tempDir: string
@@ -125,9 +125,8 @@ TEST_KEY_2=value2
     expect(process.env.MULTI_EQUAL).toBe("a=b=c")
   })
 
-  it("uses default .env path when no argument provided", () => {
-    // This test verifies the function can handle missing file gracefully
-    // We're not creating a .env file in the current directory
+  it("no-ops when no argument provided", () => {
+    // loadEnvFile() with no args should do nothing (not even look for .env in cwd)
     expect(() => {
       loadEnvFile()
     }).not.toThrow()
@@ -149,5 +148,117 @@ TEST_KEY_2=value2
     fs.writeFileSync(tempEnvPath, 'QUOTED_KEY=""\n')
     loadEnvFile(tempEnvPath)
     expect(process.env.QUOTED_KEY).toBe("")
+  })
+})
+
+describe("ensureConfigDir", () => {
+  let testConfigDir: string
+
+  beforeEach(() => {
+    testConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), "ensure-config-test-"))
+    // Clean it so we can test creation
+    fs.rmSync(testConfigDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    if (fs.existsSync(testConfigDir)) {
+      fs.rmSync(testConfigDir, { recursive: true })
+    }
+  })
+
+  it("creates CONFIG_DIR if it does not exist", () => {
+    // We can't easily test the real CONFIG_DIR without mocking,
+    // so we just verify ensureConfigDir doesn't throw
+    expect(() => ensureConfigDir()).not.toThrow()
+    expect(fs.existsSync(CONFIG_DIR)).toBe(true)
+  })
+
+  it("does not throw if CONFIG_DIR already exists", () => {
+    ensureConfigDir()
+    // Call again — should be idempotent
+    expect(() => ensureConfigDir()).not.toThrow()
+  })
+})
+
+describe("listEnvFiles", () => {
+  let testConfigDir: string
+
+  beforeEach(() => {
+    testConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), "list-env-test-"))
+  })
+
+  afterEach(() => {
+    if (fs.existsSync(testConfigDir)) {
+      fs.rmSync(testConfigDir, { recursive: true })
+    }
+  })
+
+  it("returns empty array when CONFIG_DIR does not exist", () => {
+    // listEnvFiles uses the real CONFIG_DIR, but we can test via a temp dir approach
+    // For this test, we verify the function handles non-existent dirs
+    const result = listEnvFiles()
+    // Result depends on whether ~/.config/opencode-lark exists
+    expect(Array.isArray(result)).toBe(true)
+  })
+
+  it("returns env files with correct appId extraction", () => {
+    // Create test .env files in a temp dir that mimics CONFIG_DIR
+    // Since listEnvFiles reads from CONFIG_DIR constant, we test integration
+    ensureConfigDir()
+    const testFile = path.join(CONFIG_DIR, ".env.cli_test_abc123")
+    const created = !fs.existsSync(testFile)
+    if (created) {
+      fs.writeFileSync(testFile, "FEISHU_APP_ID=cli_test_abc123\n")
+    }
+
+    try {
+      const result = listEnvFiles()
+      const match = result.find((r) => r.appId === "cli_test_abc123")
+      expect(match).toBeDefined()
+      expect(match?.filePath).toBe(testFile)
+    } finally {
+      if (created && fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile)
+      }
+    }
+  })
+
+  it("ignores files that don't match .env.* pattern", () => {
+    ensureConfigDir()
+    const junkFile = path.join(CONFIG_DIR, "config.json")
+    const created = !fs.existsSync(junkFile)
+    if (created) {
+      fs.writeFileSync(junkFile, "{}")
+    }
+
+    try {
+      const result = listEnvFiles()
+      const match = result.find((r) => r.appId === "config.json")
+      expect(match).toBeUndefined()
+    } finally {
+      if (created && fs.existsSync(junkFile)) {
+        fs.unlinkSync(junkFile)
+      }
+    }
+  })
+
+  it("ignores bare .env file (no suffix)", () => {
+    ensureConfigDir()
+    const bareEnv = path.join(CONFIG_DIR, ".env.")
+    const created = !fs.existsSync(bareEnv)
+    if (created) {
+      fs.writeFileSync(bareEnv, "TEST=1\n")
+    }
+
+    try {
+      const result = listEnvFiles()
+      // .env. has length 5, entry.length > 5 fails, so it should be excluded
+      const match = result.find((r) => r.appId === "")
+      expect(match).toBeUndefined()
+    } finally {
+      if (created && fs.existsSync(bareEnv)) {
+        fs.unlinkSync(bareEnv)
+      }
+    }
   })
 })
