@@ -1,16 +1,31 @@
 {
   "name": "opencode-lark",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Bridge Feishu/Lark group chats to opencode TUI sessions — real-time two-way messaging with streaming cards / 飞书群聊 ↔ opencode TUI 双向实时桥接",
   "license": "MIT",
-  "keywords": ["opencode", "feishu", "lark", "飞书", "chatbot", "ai", "bridge", "streaming"],
+  "keywords": [
+    "opencode",
+    "feishu",
+    "lark",
+    "飞书",
+    "chatbot",
+    "ai",
+    "bridge",
+    "streaming"
+  ],
   "homepage": "https://github.com/guazi04/opencode-lark#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/guazi04/opencode-lark.git"
   },
   "type": "module",
-  "files": ["dist", "bin", "README.md", "LICENSE", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "bin": {
     "opencode-lark": "./bin/opencode-lark.js"
   },
