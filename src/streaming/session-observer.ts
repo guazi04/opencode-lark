@@ -25,6 +25,8 @@ export interface SessionObserverDeps {
 export interface SessionObserver {
   observe(sessionId: string, chatId: string): void
   markOwned(messageId: string): void
+  markSessionBusy(sessionId: string): void
+  markSessionFree(sessionId: string): void
   getChatForSession(sessionId: string): string | undefined
   stop(): void
 }
@@ -62,6 +64,8 @@ export function createSessionObserver(
 
   // Feishu-initiated message IDs — skip these in forwarding
   const knownMessageIds = new Set<string>()
+  // Sessions with an active streaming bridge — skip TextDelta/SessionIdle
+  const busySessions = new Set<string>()
   // Per-messageId text accumulation
   const textBuffers = new Map<string, string>()
   // Active observation state per session
@@ -88,10 +92,12 @@ export function createSessionObserver(
   return {
     observe(sessionId: string, chatId: string): void {
       if (observedSessions.has(sessionId)) return
-
       const listener = (rawEvent: unknown): void => {
         const action = eventProcessor.processEvent(rawEvent)
         if (!action) return
+
+        // Skip all TextDelta/SessionIdle for sessions handled by streaming bridge
+        if (busySessions.has(action.sessionId)) return
 
         const messageId = extractMessageId(rawEvent)
 
@@ -156,6 +162,16 @@ export function createSessionObserver(
       textBuffers.delete(messageId)
     },
 
+    markSessionBusy(sessionId: string): void {
+      busySessions.add(sessionId)
+    },
+
+    markSessionFree(sessionId: string): void {
+      busySessions.delete(sessionId)
+      // Drop any text that may have been buffered before busy was set
+      textBuffers.clear()
+    },
+
     getChatForSession(sessionId: string): string | undefined {
       return observedSessions.get(sessionId)?.chatId
     },
@@ -167,6 +183,7 @@ export function createSessionObserver(
       observedSessions.clear()
       textBuffers.clear()
       knownMessageIds.clear()
+      busySessions.clear()
       logger.info("Session observer stopped")
     },
   }

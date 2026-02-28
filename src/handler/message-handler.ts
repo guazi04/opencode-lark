@@ -40,6 +40,36 @@ export interface HandlerDeps {
 
 const EVENT_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
+// ── Helper: extract text from Feishu post rich content ──
+
+function extractTextFromPost(content: string): string {
+  try {
+    interface PostLocale {
+      title?: string
+      content?: Array<Array<{ tag: string; text?: string }>>
+    }
+    const parsed = JSON.parse(content) as Record<string, PostLocale>
+    // Pick first available locale
+    const locale = Object.values(parsed)[0]
+    if (!locale?.content) return ""
+
+    const lines: string[] = []
+    if (locale.title) lines.push(locale.title)
+
+    for (const paragraph of locale.content) {
+      const lineText = paragraph
+        .filter((el) => (el.tag === "text" || el.tag === "a") && el.text)
+        .map((el) => el.text!)
+        .join("")
+      if (lineText) lines.push(lineText)
+    }
+
+    return lines.join("\n")
+  } catch {
+    return ""
+  }
+}
+
 // ── Factory ──
 
 export function createMessageHandler(
@@ -67,7 +97,7 @@ export function createMessageHandler(
     }
 
     // ── 2. Skip non-text messages ──
-    if (event.message.message_type !== "text") {
+    if (event.message.message_type !== "text" && event.message.message_type !== "post") {
       logger.debug(
         `Skipping non-text message: ${event.message.message_type}`,
       )
@@ -76,11 +106,15 @@ export function createMessageHandler(
 
     // ── 3. Parse user text ──
     let userText: string
-    try {
-      const parsed = JSON.parse(event.message.content) as { text?: string }
-      userText = parsed.text ?? ""
-    } catch {
-      userText = event.message.content
+    if (event.message.message_type === "post") {
+      userText = extractTextFromPost(event.message.content)
+    } else {
+      try {
+        const parsed = JSON.parse(event.message.content) as { text?: string }
+        userText = parsed.text ?? ""
+      } catch {
+        userText = event.message.content
+      }
     }
 
     if (!userText.trim()) return
@@ -161,6 +195,9 @@ export function createMessageHandler(
 
     // ── 9. Try streaming bridge (registers listener BEFORE POST) → sync fallback ──
     if (deps.streamingBridge) {
+      // Tell observer to skip TextDelta/SessionIdle for this session
+      if (deps.observer) deps.observer.markSessionBusy(sessionId)
+
       // Register ownership listener to mark Feishu-initiated messageIds
       let ownershipListener: ((event: unknown) => void) | null = null
       if (deps.observer) {
@@ -184,6 +221,7 @@ export function createMessageHandler(
           postToOpencode,
           (responseText: string) => {
             if (ownershipListener) removeListener(eventListeners, sessionId, ownershipListener)
+            if (deps.observer) deps.observer.markSessionFree(sessionId)
           },
           event.message_id,
           reactionId,
@@ -192,6 +230,7 @@ export function createMessageHandler(
         return
       } catch (err) {
         if (ownershipListener) removeListener(eventListeners, sessionId, ownershipListener)
+        if (deps.observer) deps.observer.markSessionFree(sessionId)
         logger.warn(
           `Streaming bridge failed, falling back to sync: ${err}`,
         )

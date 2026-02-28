@@ -246,17 +246,33 @@ async function main(): Promise<void> {
       logger.info("SSE event stream connected")
       for await (const event of events.stream) {
         const eventType = (event as Record<string, unknown>)?.type as string | undefined
+        const props = (event as Record<string, unknown>)?.properties as Record<string, unknown> | undefined
+        const sessionID = props?.sessionID ?? (props?.part && typeof props.part === "object" ? (props.part as Record<string, unknown>).sessionID : undefined)
         if (eventType) {
-          const props = (event as Record<string, unknown>)?.properties as Record<string, unknown> | undefined
-          const sessionID = props?.sessionID ?? (props?.part && typeof props.part === "object" ? (props.part as Record<string, unknown>).sessionID : undefined)
           logger.debug(`SSE: ${eventType} session=${sessionID ?? "n/a"}`)
         }
-        for (const [key, listeners] of eventListeners.entries()) {
-          for (const listener of listeners) {
-            try {
-              listener(event)
-            } catch (err) {
-              logger.warn(`Event listener for ${key} threw: ${err}`)
+
+        // Targeted dispatch: send only to matching session's listeners
+        if (sessionID && typeof sessionID === "string") {
+          const listeners = eventListeners.get(sessionID)
+          if (listeners) {
+            for (const listener of listeners) {
+              try {
+                listener(event)
+              } catch (err) {
+                logger.warn(`Event listener for ${sessionID} threw: ${err}`)
+              }
+            }
+          }
+        } else {
+          // No sessionID — broadcast to all (fallback for non-session events)
+          for (const [key, listeners] of eventListeners.entries()) {
+            for (const listener of listeners) {
+              try {
+                listener(event)
+              } catch (err) {
+                logger.warn(`Event listener for ${key} threw: ${err}`)
+              }
             }
           }
         }

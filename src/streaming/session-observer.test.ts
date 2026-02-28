@@ -215,4 +215,62 @@ describe("SessionObserver", () => {
     // Should be skipped because msg-owned is marked owned
     expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
   })
+
+  it("skips TextDelta and SessionIdle when session is marked busy", () => {
+    const deps = makeDeps()
+    const observer = createSessionObserver(deps)
+    observer.observe("ses-1", "chat-1")
+    observer.markSessionBusy("ses-1")
+
+    const listener = deps.capturedListeners.get("ses-1")!
+
+    listener(textDeltaEvent("ses-1", "msg-tui-2", "Busy text"))
+    listener(sessionIdleEvent("ses-1"))
+
+    // Observer should skip everything for busy sessions
+    expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("resumes processing after markSessionFree", () => {
+    const deps = makeDeps()
+    const observer = createSessionObserver(deps)
+    observer.observe("ses-1", "chat-1")
+    observer.markSessionBusy("ses-1")
+
+    const listener = deps.capturedListeners.get("ses-1")!
+
+    // While busy: no forwarding
+    listener(textDeltaEvent("ses-1", "msg-busy", "Ignored"))
+    listener(sessionIdleEvent("ses-1"))
+    expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
+
+    // Free the session
+    observer.markSessionFree("ses-1")
+
+    // Now TUI messages should be forwarded
+    listener(textDeltaEvent("ses-1", "msg-free", "Forwarded"))
+    listener(sessionIdleEvent("ses-1"))
+
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
+      msg_type: "text",
+      content: JSON.stringify({ text: "Forwarded" }),
+    })
+  })
+
+  it("markSessionBusy does not affect other sessions", () => {
+    const deps = makeDeps()
+    const observer = createSessionObserver(deps)
+    observer.observe("ses-1", "chat-1")
+    observer.markSessionBusy("ses-other")
+
+    const listener = deps.capturedListeners.get("ses-1")!
+
+    listener(textDeltaEvent("ses-1", "msg-ok", "Not blocked"))
+    listener(sessionIdleEvent("ses-1"))
+
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
+      msg_type: "text",
+      content: JSON.stringify({ text: "Not blocked" }),
+    })
+  })
 })

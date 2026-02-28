@@ -85,7 +85,7 @@ describe("createMessageHandler", () => {
     expect(deps.sessionManager.getOrCreate).not.toHaveBeenCalled()
   })
 
-  it("skips non-text messages", async () => {
+  it("skips non-text/post messages", async () => {
     const deps = makeDeps()
     const handler = createMessageHandler(deps)
 
@@ -97,6 +97,95 @@ describe("createMessageHandler", () => {
     expect(deps.logger.debug).toHaveBeenCalledWith(
       expect.stringContaining("Skipping non-text"),
     )
+  })
+
+  it("handles post message type — extracts text from rich content", async () => {
+    mockFetchOk("")
+    const deps = makeDeps()
+    const handler = createMessageHandler(deps)
+
+    const postContent = JSON.stringify({
+      zh_cn: {
+        title: "Post Title",
+        content: [
+          [
+            { tag: "text", text: "Line 1 text" },
+            { tag: "a", href: "https://example.com", text: "link" },
+          ],
+          [
+            { tag: "text", text: "Line 2" },
+          ],
+        ],
+      },
+    })
+
+    const handlerPromise = handler(
+      makeEvent({ message: { message_type: "post", content: postContent } }),
+    )
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalled()
+  })
+
+  it("handles post message with multiple paragraphs", async () => {
+    mockFetchOk("")
+    const deps = makeDeps()
+    const handler = createMessageHandler(deps)
+
+    const postContent = JSON.stringify({
+      en_us: {
+        content: [
+          [{ tag: "text", text: "Paragraph 1" }],
+          [{ tag: "text", text: "Paragraph 2" }],
+          [{ tag: "text", text: "Paragraph 3" }],
+        ],
+      },
+    })
+
+    const handlerPromise = handler(
+      makeEvent({ message: { message_type: "post", content: postContent } }),
+    )
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    const listener = [...deps.eventListeners.get("ses-1")!][0]!
+
+    listener({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    })
+
+    await handlerPromise
+
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalled()
+  })
+
+  it("handles post message with empty content gracefully", async () => {
+    mockFetchOk("")
+    const deps = makeDeps()
+    const handler = createMessageHandler(deps)
+
+    // Empty post content
+    const postContent = JSON.stringify({})
+
+    await handler(
+      makeEvent({ message: { message_type: "post", content: postContent } }),
+    )
+
+    // Should skip because extracted text is empty
+    expect(deps.sessionManager.getOrCreate).not.toHaveBeenCalled()
   })
 
   it("skips empty text messages", async () => {
@@ -411,6 +500,9 @@ describe("createMessageHandler", () => {
     const observer = {
       observe: vi.fn(),
       markOwned: vi.fn(),
+      markSessionBusy: vi.fn(),
+      markSessionFree: vi.fn(),
+      getChatForSession: vi.fn(),
       stop: vi.fn(),
     }
     const deps = makeDeps({ observer })
@@ -437,6 +529,9 @@ describe("createMessageHandler", () => {
     const observer = {
       observe: vi.fn(),
       markOwned: vi.fn(),
+      markSessionBusy: vi.fn(),
+      markSessionFree: vi.fn(),
+      getChatForSession: vi.fn(),
       stop: vi.fn(),
     }
     const deps = makeDeps({ observer })
@@ -487,5 +582,39 @@ describe("createMessageHandler", () => {
 
     // Should complete without errors
     expect(deps.progressTracker.updateWithResponse).toHaveBeenCalled()
+  })
+
+  it("calls observer.markSessionBusy/Free when streaming bridge is used", async () => {
+    mockFetchOk("")
+    const observer = {
+      observe: vi.fn(),
+      markOwned: vi.fn(),
+      markSessionBusy: vi.fn(),
+      markSessionFree: vi.fn(),
+      getChatForSession: vi.fn(),
+      stop: vi.fn(),
+    }
+
+    // Create a minimal streaming bridge that resolves immediately
+    const streamingBridge = {
+      handleMessage: vi.fn().mockImplementation(
+        async (_chatId: string, _sessionId: string, _el: EventListenerMap, _ep: unknown, _send: () => Promise<string>, onComplete: (text: string) => void) => {
+          onComplete("done")
+        },
+      ),
+    }
+
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.addReaction as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0, msg: "ok", data: { reaction_id: "r-1" },
+    })
+
+    const deps = makeDeps({ observer, streamingBridge, feishuClient })
+    const handler = createMessageHandler(deps)
+
+    await handler(makeEvent())
+
+    expect(observer.markSessionBusy).toHaveBeenCalledWith("ses-1")
+    expect(observer.markSessionFree).toHaveBeenCalledWith("ses-1")
   })
 })
