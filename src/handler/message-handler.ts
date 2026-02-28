@@ -70,6 +70,45 @@ function extractTextFromPost(content: string): string {
   }
 }
 
+// ── Helper: fetch quoted message text for reply context ──
+
+async function fetchQuotedText(
+  feishuClient: FeishuApiClient,
+  parentId: string,
+  logger: Logger,
+): Promise<string | null> {
+  try {
+    const resp = await feishuClient.getMessage(parentId)
+    if (resp.code !== 0 || !resp.data) return null
+
+    const items = resp.data.items as Array<{
+      msg_type?: string
+      body?: { content?: string }
+    }> | undefined
+
+    const item = items?.[0]
+    if (!item?.body?.content) return null
+
+    if (item.msg_type === "text") {
+      try {
+        const parsed = JSON.parse(item.body.content) as { text?: string }
+        return parsed.text ?? null
+      } catch {
+        return item.body.content
+      }
+    }
+
+    if (item.msg_type === "post") {
+      return extractTextFromPost(item.body.content) || null
+    }
+
+    return null
+  } catch (err) {
+    logger.warn(`Failed to fetch quoted message ${parentId}: ${err}`)
+    return null
+  }
+}
+
 // ── Factory ──
 
 export function createMessageHandler(
@@ -172,6 +211,17 @@ export function createMessageHandler(
     const parts: Array<{ type: string; text: string }> = [
       { type: "text", text: userText },
     ]
+
+    // ── 7b. Include quoted message context ──
+    if (event.parent_id) {
+      const quotedText = await fetchQuotedText(feishuClient, event.parent_id, logger)
+      if (quotedText) {
+        parts[0] = {
+          type: "text",
+          text: `> ${quotedText.split("\n").join("\n> ")}\n\n${userText}`,
+        }
+      }
+    }
 
     // ── 8. Build the POST-to-opencode function ──
     const promptUrl = `${serverUrl}/session/${sessionId}/message`

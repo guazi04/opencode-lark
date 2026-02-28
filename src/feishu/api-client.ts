@@ -26,6 +26,7 @@ export interface FeishuApiClient {
   updateMessage(messageId: string, content: string): Promise<FeishuApiResponse>
   addReaction(messageId: string, emojiType: string): Promise<FeishuApiResponse>
   deleteReaction(messageId: string, reactionId: string): Promise<FeishuApiResponse>
+  getMessage(messageId: string): Promise<FeishuApiResponse>
 }
 
 export function createFeishuApiClient(options: FeishuApiClientOptions): FeishuApiClient {
@@ -149,6 +150,10 @@ export function createFeishuApiClient(options: FeishuApiClientOptions): FeishuAp
 
     async deleteReaction(messageId, reactionId) {
       return apiRequest("DELETE", `/im/v1/messages/${messageId}/reactions/${reactionId}`)
+    },
+
+    async getMessage(messageId) {
+      return apiRequest("GET", `/im/v1/messages/${messageId}`)
     },
   }
 }

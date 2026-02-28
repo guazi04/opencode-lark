@@ -617,4 +617,104 @@ describe("createMessageHandler", () => {
     expect(observer.markSessionBusy).toHaveBeenCalledWith("ses-1")
     expect(observer.markSessionFree).toHaveBeenCalledWith("ses-1")
   })
+
+  it("includes quoted message context when parent_id is present", async () => {
+    mockFetchOk("")
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.getMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      msg: "ok",
+      data: {
+        items: [{
+          msg_type: "text",
+          body: { content: JSON.stringify({ text: "original question" }) },
+        }],
+      },
+    })
+    const deps = makeDeps({ feishuClient })
+    const handler = createMessageHandler(deps)
+
+    const handlerPromise = handler(
+      makeEvent({ parent_id: "parent-msg-1" }),
+    )
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    expect(feishuClient.getMessage).toHaveBeenCalledWith("parent-msg-1")
+
+    // Verify the POST body contains quoted context
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
+    )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toContain("> original question")
+    expect(body.parts[0].text).toContain("Hello")
+  })
+
+  it("handles getMessage failure gracefully (still sends user message)", async () => {
+    mockFetchOk("")
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.getMessage as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("API error"),
+    )
+    const deps = makeDeps({ feishuClient })
+    const handler = createMessageHandler(deps)
+
+    const handlerPromise = handler(
+      makeEvent({ parent_id: "parent-msg-1" }),
+    )
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    // Should still have sent the original message without quoted context
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
+    )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toBe("Hello")
+  })
+
+  it("does not fetch quoted message when parent_id is absent", async () => {
+    mockFetchOk("")
+    const feishuClient = createMockFeishuClient()
+    const deps = makeDeps({ feishuClient })
+    const handler = createMessageHandler(deps)
+
+    const handlerPromise = handler(makeEvent())
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    expect(feishuClient.getMessage).not.toHaveBeenCalled()
+  })
 })

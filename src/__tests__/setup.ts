@@ -54,5 +54,6 @@ export function createMockFeishuClient(): FeishuApiClient {
     updateMessage: vi.fn(),
     addReaction: vi.fn(),
     deleteReaction: vi.fn(),
+    getMessage: vi.fn().mockResolvedValue({ code: 0, msg: "ok", data: { items: [] } }),
   }
 }
