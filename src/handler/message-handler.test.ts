@@ -94,7 +94,7 @@ describe("createMessageHandler", () => {
     )
 
     expect(deps.sessionManager.getOrCreate).not.toHaveBeenCalled()
-    expect(deps.logger.debug).toHaveBeenCalledWith(
+    expect(deps.logger.info).toHaveBeenCalledWith(
       expect.stringContaining("Skipping non-text"),
     )
   })
@@ -186,6 +186,51 @@ describe("createMessageHandler", () => {
 
     // Should skip because extracted text is empty
     expect(deps.sessionManager.getOrCreate).not.toHaveBeenCalled()
+  })
+
+  it("handles flat post format (WebSocket)", async () => {
+    mockFetchOk("")
+    const deps = makeDeps()
+    const handler = createMessageHandler(deps)
+
+    const postContent = JSON.stringify({
+      title: "",
+      content: [
+        [
+          { tag: "text", text: "1. ", style: [] },
+          { tag: "text", text: "first item" },
+        ],
+        [
+          { tag: "text", text: "2. ", style: [] },
+          { tag: "text", text: "second item" },
+        ],
+      ],
+    })
+
+    const handlerPromise = handler(
+      makeEvent({ message: { message_type: "post", content: postContent } }),
+    )
+
+    await vi.waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    // Verify fetch was called with parts containing extracted text
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
+    )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toContain("1. first item")
+    expect(body.parts[0].text).toContain("2. second item")
   })
 
   it("skips empty text messages", async () => {

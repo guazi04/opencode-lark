@@ -44,26 +44,36 @@ const EVENT_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 function extractTextFromPost(content: string): string {
   try {
-    interface PostLocale {
-      title?: string
-      content?: Array<Array<{ tag: string; text?: string }>>
+    const parsed = JSON.parse(content) as Record<string, unknown>
+    
+    // Determine the post data structure:
+    // Format 1 (flat, from WebSocket): { title?: string, content: [[...]] }
+    // Format 2 (locale-wrapped, from REST API): { zh_cn: { title?: string, content: [[...]] } }
+    let postData: { title?: string; content?: Array<Array<{ tag: string; text?: string }>> }
+    
+    if (Array.isArray(parsed.content)) {
+      // Flat format — content is directly on the object
+      postData = parsed as typeof postData
+    } else {
+      // Locale-wrapped format — pick first locale value
+      const locale = Object.values(parsed)[0]
+      if (!locale || typeof locale !== "object") return ""
+      postData = locale as typeof postData
     }
-    const parsed = JSON.parse(content) as Record<string, PostLocale>
-    // Pick first available locale
-    const locale = Object.values(parsed)[0]
-    if (!locale?.content) return ""
-
+    
+    if (!postData?.content) return ""
+    
     const lines: string[] = []
-    if (locale.title) lines.push(locale.title)
-
-    for (const paragraph of locale.content) {
+    if (postData.title) lines.push(postData.title)
+    
+    for (const paragraph of postData.content) {
       const lineText = paragraph
         .filter((el) => (el.tag === "text" || el.tag === "a") && el.text)
         .map((el) => el.text!)
         .join("")
       if (lineText) lines.push(lineText)
     }
-
+    
     return lines.join("\n")
   } catch {
     return ""
@@ -137,8 +147,8 @@ export function createMessageHandler(
 
     // ── 2. Skip non-text messages ──
     if (event.message.message_type !== "text" && event.message.message_type !== "post") {
-      logger.debug(
-        `Skipping non-text message: ${event.message.message_type}`,
+      logger.info(
+        `Skipping non-text/post message: ${event.message.message_type}`,
       )
       return
     }
