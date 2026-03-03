@@ -10,3 +10,6 @@ opencode-lark.jsonc
 .sisyphus/
 *.tgz
 .DS_Store
+
+.opencode-lark/
+bin/
