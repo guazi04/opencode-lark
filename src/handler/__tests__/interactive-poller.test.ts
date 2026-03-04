@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { createInteractivePoller } from "../interactive-poller.js"
 
+const advanceTimers = async (ms: number) => {
+  if (typeof vi.advanceTimersByTimeAsync === "function") {
+    await vi.advanceTimersByTimeAsync(ms)
+  } else {
+    vi.advanceTimersByTime(ms)
+    await new Promise(r => setImmediate(r))
+  }
+}
+
 function createMockLogger() {
   return {
     info: vi.fn(),
@@ -96,7 +105,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
         "http://test:4096/question",
@@ -146,7 +155,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
         "chat_123",
@@ -163,7 +172,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -175,7 +184,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -190,7 +199,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson(incomplete), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -200,7 +209,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(notOk(), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -210,7 +219,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(new Error("ECONNREFUSED"), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -220,7 +229,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson({ not: "array" }), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -230,7 +239,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(badJson(), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -241,7 +250,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(10)
+      await advanceTimers(10)
 
       expect(deps.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining("Poller question card send failed"),
@@ -257,7 +266,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
         "chat_123",
@@ -274,7 +283,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -286,7 +295,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -300,7 +309,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson(incomplete))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -310,7 +319,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), notOk())
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -320,7 +329,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), new Error("ECONNREFUSED"))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
     })
@@ -331,7 +340,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([perm]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       const calls = (deps.feishuClient.sendMessage as ReturnType<typeof vi.fn>).mock.calls
       expect(calls.length).toBe(1)
@@ -346,7 +355,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([perm]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       const calls = (deps.feishuClient.sendMessage as ReturnType<typeof vi.fn>).mock.calls
       expect(calls.length).toBe(1)
@@ -360,7 +369,7 @@ describe("interactive-poller", () => {
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(10)
+      await advanceTimers(10)
 
       expect(deps.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining("Poller permission card send failed"),
@@ -379,7 +388,7 @@ describe("interactive-poller", () => {
       )
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
 
       expect(deps.seenInteractiveIds.has("q_1")).toBe(true)
       expect(deps.seenInteractiveIds.has("p_1")).toBe(true)
@@ -391,10 +400,10 @@ describe("interactive-poller", () => {
       globalThis.fetch = fetchMock
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
       const callsAfterFirst = fetchMock.mock.calls.length
 
-      await vi.advanceTimersByTimeAsync(3000)
+      await advanceTimers(3000)
       expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst)
 
       poller.stop()
@@ -406,11 +415,11 @@ describe("interactive-poller", () => {
       globalThis.fetch = fetchMock
       const poller = createInteractivePoller(deps)
       poller.start()
-      await vi.advanceTimersByTimeAsync(0)
+      await advanceTimers(0)
       poller.stop()
 
       const callsAtStop = fetchMock.mock.calls.length
-      await vi.advanceTimersByTimeAsync(10000)
+      await advanceTimers(10000)
       expect(fetchMock.mock.calls.length).toBe(callsAtStop)
     })
   })

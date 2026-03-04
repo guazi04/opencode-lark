@@ -286,4 +286,242 @@ describe("MessageDebouncer", () => {
     debouncer.flush("key-1")
     expect(debouncer.hasPending("key-1")).toBe(false)
   })
+
+  // ── Init-gate (race condition prevention) tests ──
+
+  it("setInitializing prevents subsequent add() from starting timer", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg1 = makeBufferedMessage("image1", { message_id: "msg-1" })
+    const msg2 = makeBufferedMessage("image2", { message_id: "msg-2" })
+
+    // First message — don't start timer
+    debouncer.add("key-1", msg1, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Second message arrives while initializing — should buffer but NOT start timer
+    debouncer.add("key-1", msg2)
+
+    // Advance well past the window — flush must NOT have fired
+    vi.advanceTimersByTime(5000)
+    expect(onFlush).not.toHaveBeenCalled()
+
+    // Now resolve init — timer starts
+    debouncer.resolveInit("key-1")
+
+    // Advance past window — now it should flush with both messages
+    vi.advanceTimersByTime(2000)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith(
+      "key-1",
+      [msg1, msg2],
+      expect.objectContaining({
+        firstEvent: msg1.event,
+        lastEvent: msg2.event,
+      }),
+    )
+  })
+
+  it("resolveInit starts timer and includes all buffered messages", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg1 = makeBufferedMessage("img1")
+    const msg2 = makeBufferedMessage("img2", { message_id: "msg-2" })
+    const msg3 = makeBufferedMessage("img3", { message_id: "msg-3" })
+
+    debouncer.add("key-1", msg1, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Simulate multiple messages arriving during init
+    debouncer.add("key-1", msg2)
+    debouncer.add("key-1", msg3)
+
+    expect(onFlush).not.toHaveBeenCalled()
+
+    // Update context (simulates the async work completing)
+    debouncer.updateContext("key-1", {
+      thinkingMessageId: "think-1",
+      reactionId: "react-1",
+      reactionMessageId: "msg-1",
+    })
+
+    // Resolve init — starts the timer
+    debouncer.resolveInit("key-1")
+
+    vi.advanceTimersByTime(2000)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith(
+      "key-1",
+      [msg1, msg2, msg3],
+      expect.objectContaining({
+        thinkingMessageId: "think-1",
+        reactionId: "react-1",
+        reactionMessageId: "msg-1",
+      }),
+    )
+  })
+
+  it("isInitializing returns correct state", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg = makeBufferedMessage("hello")
+
+    expect(debouncer.isInitializing("key-1")).toBe(false)
+
+    debouncer.add("key-1", msg, { startTimer: false })
+    expect(debouncer.isInitializing("key-1")).toBe(false)
+
+    debouncer.setInitializing("key-1")
+    expect(debouncer.isInitializing("key-1")).toBe(true)
+
+    debouncer.resolveInit("key-1")
+    expect(debouncer.isInitializing("key-1")).toBe(false)
+  })
+
+  it("flush during init clears initResolve", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg = makeBufferedMessage("hello")
+
+    debouncer.add("key-1", msg, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Manual flush (e.g., from text follow-up) should work during init
+    debouncer.flush("key-1")
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(debouncer.hasPending("key-1")).toBe(false)
+  })
+
+  it("MAX_BATCH_SIZE still triggers during init", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+
+    debouncer.add("key-1", makeBufferedMessage("first"), { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Add 19 more messages during init (total = 20 = MAX_BATCH_SIZE)
+    for (let i = 1; i < 20; i++) {
+      debouncer.add("key-1", makeBufferedMessage(`msg-${i}`))
+    }
+
+    // Should force-flush at batch cap even during init
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    const messages = onFlush.mock.calls[0]![1] as BufferedMessage[]
+    expect(messages).toHaveLength(20)
+    expect(debouncer.isInitializing("key-1")).toBe(false)
+  })
+
+  // ── Bug fix tests (Oracle Review #3) ──
+
+  it("media2 after init completes — timer fires and flushes buffer (startTimer=false preserves existing timer)", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg1 = makeBufferedMessage("image1", { message_id: "msg-1" })
+    const msg2 = makeBufferedMessage("image2", { message_id: "msg-2" })
+
+    // First media — don't start timer, do init
+    debouncer.add("key-1", msg1, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Simulate init completing (context set, timer starts)
+    debouncer.updateContext("key-1", {
+      thinkingMessageId: "think-1",
+      reactionId: "react-1",
+      reactionMessageId: "msg-1",
+    })
+    debouncer.resolveInit("key-1")
+
+    // Second media arrives after init — startTimer=false must NOT kill the running timer
+    debouncer.add("key-1", msg2, { startTimer: false })
+
+    // Advance past window — timer should fire with both messages
+    vi.advanceTimersByTime(2000)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith(
+      "key-1",
+      [msg1, msg2],
+      expect.objectContaining({
+        thinkingMessageId: "think-1",
+        reactionId: "react-1",
+        reactionMessageId: "msg-1",
+      }),
+    )
+  })
+
+  it("text arrives during init — flush happens after init via flushOnInit", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg1 = makeBufferedMessage("image1", { message_id: "msg-1" })
+    const msgText = makeBufferedMessage("describe this", { message_id: "msg-text" })
+
+    // First media — don't start timer, begin init
+    debouncer.add("key-1", msg1, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Text arrives while init is still in progress
+    debouncer.add("key-1", msgText)
+    expect(debouncer.isInitializing("key-1")).toBe(true)
+
+    // Mark flushOnInit — this is what message-handler does
+    debouncer.markFlushOnInit("key-1")
+
+    // Flush should NOT have happened yet (init not resolved)
+    expect(onFlush).not.toHaveBeenCalled()
+
+    // Now simulate init completing with context
+    debouncer.updateContext("key-1", {
+      thinkingMessageId: "think-1",
+      reactionId: "react-1",
+      reactionMessageId: "msg-1",
+    })
+
+    // resolveInit should flush immediately (not start timer) because flushOnInit is set
+    debouncer.resolveInit("key-1")
+
+    // Should have flushed with both messages AND the reaction context
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith(
+      "key-1",
+      [msg1, msgText],
+      expect.objectContaining({
+        thinkingMessageId: "think-1",
+        reactionId: "react-1",
+        reactionMessageId: "msg-1",
+      }),
+    )
+
+    // No timer should be running (flushed immediately)
+    vi.advanceTimersByTime(5000)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it("resolveInit after partial failure — buffer still flushes (not stuck)", () => {
+    const debouncer = new MessageDebouncer(2000, onFlush, createMockLogger())
+    const msg1 = makeBufferedMessage("image1", { message_id: "msg-1" })
+
+    // First media — don't start timer, begin init
+    debouncer.add("key-1", msg1, { startTimer: false })
+    debouncer.setInitializing("key-1")
+
+    // Simulate partial context — reaction succeeded but thinking threw
+    // The caller uses try/finally so resolveInit is always called
+    debouncer.updateContext("key-1", {
+      reactionId: "react-1",
+      reactionMessageId: "msg-1",
+      // thinkingMessageId intentionally NOT set (simulating sendThinking failure)
+    })
+
+    // resolveInit called even though init was partial (via finally block)
+    debouncer.resolveInit("key-1")
+
+    // Buffer should NOT be stuck — timer should have started
+    expect(debouncer.isInitializing("key-1")).toBe(false)
+    expect(debouncer.hasPending("key-1")).toBe(true)
+
+    // Timer fires — flushes with partial context (thinkingMessageId is null)
+    vi.advanceTimersByTime(2000)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+    expect(onFlush).toHaveBeenCalledWith(
+      "key-1",
+      [msg1],
+      expect.objectContaining({
+        thinkingMessageId: null,
+        reactionId: "react-1",
+        reactionMessageId: "msg-1",
+      }),
+    )
+  })
 })

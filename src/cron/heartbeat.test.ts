@@ -3,6 +3,15 @@ import { HeartbeatService } from "../cron/heartbeat.js"
 import type { HeartbeatOptions } from "../cron/heartbeat.js"
 import { createMockLogger, createMockFeishuClient } from "../__tests__/setup.js"
 
+const advanceTimers = async (ms: number) => {
+  if (typeof vi.advanceTimersByTimeAsync === "function") {
+    await vi.advanceTimersByTimeAsync(ms)
+  } else {
+    vi.advanceTimersByTime(ms)
+    await new Promise(r => setImmediate(r))
+  }
+}
+
 function makeOptions(overrides: Partial<HeartbeatOptions> = {}): HeartbeatOptions {
   return {
     intervalMs: 1000,
@@ -75,7 +84,7 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     expect(mockFetch).toHaveBeenCalledWith("http://127.0.0.1:4096/session/status")
     expect(options.logger.info).toHaveBeenCalledWith("Server healthy")
@@ -92,7 +101,7 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     expect(options.logger.error).toHaveBeenCalledWith(
       "Server health check failed with HTTP 500",
@@ -115,7 +124,7 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     expect(options.logger.error).toHaveBeenCalledWith(
       "Server health check failed with HTTP 502",
@@ -139,7 +148,7 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     expect(options.logger.error).toHaveBeenCalledWith(
       expect.stringContaining("Server health check failed: Network timeout"),
@@ -162,7 +171,7 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     expect(feishuClient.sendMessage).toHaveBeenCalledWith(
       "chat-456",
@@ -185,14 +194,14 @@ describe("HeartbeatService", () => {
 
     service.start()
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     let stats = service.getStats()
     expect(stats.successCount).toBe(1)
     expect(stats.failCount).toBe(0)
 
     vi.advanceTimersByTime(100)
-    await vi.advanceTimersByTimeAsync(10)
+    await advanceTimers(10)
 
     stats = service.getStats()
     expect(stats.successCount).toBe(1)

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { EventListenerMap } from "../utils/event-listeners.js"
 import { createStreamingBridge, type StreamingBridgeDeps } from "./streaming-integration.js"
 import { EventProcessor } from "../streaming/event-processor.js"
-import { createMockLogger, createMockFeishuClient } from "../__tests__/setup.js"
+import { createMockLogger, createMockFeishuClient, waitFor } from "../__tests__/setup.js"
 import type { CardKitClient } from "../feishu/cardkit-client.js"
 import type { SubAgentTracker } from "../streaming/subagent-tracker.js"
 
@@ -78,7 +78,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -120,7 +120,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -176,7 +176,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -230,7 +230,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -304,7 +304,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -339,7 +339,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -405,7 +405,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -463,7 +463,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -527,7 +527,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -589,7 +589,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -649,7 +649,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -719,7 +719,7 @@ describe("createStreamingBridge", () => {
           null,
         )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -772,7 +772,7 @@ describe("createStreamingBridge", () => {
       "msg_original",
       "reaction_123",
     )
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -835,7 +835,7 @@ describe("createStreamingBridge", () => {
       "msg_original",
       "reaction_123",
     )
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 

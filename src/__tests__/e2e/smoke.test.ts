@@ -22,7 +22,7 @@ import { createMessageHandler, type HandlerDeps } from "../../handler/message-ha
 import { createStreamingBridge } from "../../handler/streaming-integration.js"
 import { EventProcessor } from "../../streaming/event-processor.js"
 import { SubAgentTracker } from "../../streaming/subagent-tracker.js"
-import { createMockLogger, createMockFeishuClient } from "../setup.js"
+import { createMockLogger, createMockFeishuClient, waitFor } from "../setup.js"
 import type { CardKitClient } from "../../feishu/cardkit-client.js"
 import type { FeishuMessageEvent } from "../../types.js"
 import type { SessionManager } from "../../session/session-manager.js"
@@ -146,7 +146,7 @@ describe("E2E Smoke Tests", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -163,7 +163,7 @@ describe("E2E Smoke Tests", () => {
     const handlerPromise = handleMessage(makeFeishuEvent())
 
     // Wait for event listener to be registered (handler POSTs, then streaming bridge starts card, registers listener)
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -262,7 +262,7 @@ describe("E2E Smoke Tests", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -279,7 +279,7 @@ describe("E2E Smoke Tests", () => {
       makeFeishuEvent({ message: { message_type: "text", content: JSON.stringify({ text: "Run task" }) } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
     })
 
@@ -359,7 +359,7 @@ describe("E2E Smoke Tests", () => {
 
     const eventProcessor = new EventProcessor({ ownedSessions })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -453,7 +453,7 @@ describe("session sharing", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -475,7 +475,7 @@ describe("session sharing", () => {
     }))
 
     // Wait for handler to register its listener(s) + observer
-    await vi.waitFor(() => {
+    await waitFor(() => {
       // Handler registers: 1 ownership listener + 1 event-driven listener
       // Observer registers: 1 listener
       // All under the same sessionId key → eventListeners.size == 1 (map keys)
@@ -544,7 +544,7 @@ describe("session sharing", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -562,7 +562,7 @@ describe("session sharing", () => {
       message: { message_type: "text", content: JSON.stringify({ text: "Feishu question" }) },
     }))
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
       expect(eventListeners.get(sessionId)!.size).toBeGreaterThanOrEqual(3)
     })
@@ -632,7 +632,7 @@ describe("session sharing", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -651,7 +651,7 @@ describe("session sharing", () => {
       message: { message_type: "text", content: JSON.stringify({ text: "Setup" }) },
     }))
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.size).toBe(1)
       expect(eventListeners.get(sessionId)!.size).toBeGreaterThanOrEqual(3)
     })
@@ -691,7 +691,7 @@ describe("session sharing", () => {
     })
 
     // Observer should have forwarded the TUI message to Feishu
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(feishuClient.sendMessage).toHaveBeenCalledWith(
         "chat-e2e",
         {
@@ -732,7 +732,7 @@ describe("session sharing", () => {
       logger,
     })
 
-    const handleMessage = createMessageHandler({
+    const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
@@ -751,7 +751,7 @@ describe("session sharing", () => {
       message: { message_type: "text", content: JSON.stringify({ text: "First" }) },
     }))
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.get(sessionId)?.size).toBeGreaterThanOrEqual(3)
     })
 
@@ -786,7 +786,7 @@ describe("session sharing", () => {
       message: { message_type: "text", content: JSON.stringify({ text: "Second" }) },
     }))
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(eventListeners.get(sessionId)?.size).toBeGreaterThanOrEqual(3)
     })
 

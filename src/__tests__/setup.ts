@@ -58,3 +58,28 @@ export function createMockFeishuClient(): FeishuApiClient {
     downloadResource: vi.fn().mockResolvedValue({ data: Buffer.from("mock-data"), filename: undefined }),
   }
 }
+
+/**
+ * Polls `fn` until it stops throwing, compatible with both vitest and bun test.
+ * Drop-in replacement for `vi.waitFor()` which is unavailable in Bun's runner.
+ * Uses setImmediate to yield — immune to fake timers.
+ */
+export async function waitFor(
+  fn: () => void | Promise<void>,
+  { timeout = 5000, maxAttempts = 500 }: { timeout?: number, maxAttempts?: number } = {},
+): Promise<void> {
+  const start = Date.now()
+  let lastErr: unknown
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await fn()
+      return
+    } catch (err) {
+      lastErr = err
+      // Yield via setImmediate (not affected by fake timers)
+      await new Promise(r => setImmediate(r))
+      if (Date.now() - start > timeout) break
+    }
+  }
+  throw lastErr
+}

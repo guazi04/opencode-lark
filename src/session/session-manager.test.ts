@@ -14,17 +14,20 @@ describe("session-manager", () => {
   let db: Database
   let sm: SessionManager
   const originalFetch = globalThis.fetch
+  let savedOpencodeCwd: string | undefined
 
   beforeEach(() => {
     db = createTestDb()
-    vi.stubEnv("OPENCODE_CWD", "/test/project")
+    savedOpencodeCwd = process.env.OPENCODE_CWD
+    process.env.OPENCODE_CWD = "/test/project"
     globalThis.fetch = vi.fn()
   })
 
   afterEach(() => {
     db.close()
     globalThis.fetch = originalFetch
-    vi.unstubAllEnvs()
+    if (savedOpencodeCwd === undefined) delete process.env.OPENCODE_CWD
+    else process.env.OPENCODE_CWD = savedOpencodeCwd
   })
 
   function mockFetch(impl: typeof globalThis.fetch) {

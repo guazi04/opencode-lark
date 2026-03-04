@@ -195,7 +195,7 @@ async function main(): Promise<void> {
     logger,
   })
 
-  const handleMessage = createMessageHandler({
+  const { handleMessage, dispose: disposeDebouncer } = createMessageHandler({
     serverUrl,
     sessionManager,
     dedup,
@@ -383,6 +383,7 @@ async function main(): Promise<void> {
       heartbeatService?.stop()
       interactivePoller.stop()
       observer.stop()
+      disposeDebouncer()
       dedup.close()
       db.close()
       process.exit(0)

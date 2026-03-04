@@ -5,6 +5,16 @@ import { createMockLogger, createMockFeishuClient } from "../__tests__/setup.js"
 import type { SessionManager } from "../session/session-manager.js"
 import type { CronConfig } from "../utils/config.js"
 
+const advanceTimers = async (ms: number) => {
+  if (typeof vi.advanceTimersByTimeAsync === "function") {
+    await vi.advanceTimersByTimeAsync(ms)
+  } else {
+    vi.advanceTimersByTime(ms)
+    await new Promise(r => setImmediate(r))
+  }
+}
+
+
 function createMockSessionManager(): SessionManager {
   return {
     getOrCreate: vi.fn().mockResolvedValue("session-123"),
@@ -159,7 +169,7 @@ describe("CronService", () => {
     const service = new CronService(options)
     service.start()
     vi.advanceTimersByTime(60_000)
-    await vi.advanceTimersByTimeAsync(100)
+    await advanceTimers(100)
     expect(options.sessionManager.getOrCreate).toHaveBeenCalledWith("cron:interval-job")
     service.stop()
   })

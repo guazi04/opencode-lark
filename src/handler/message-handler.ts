@@ -232,9 +232,15 @@ async function fetchQuotedText(
 
 // ── Factory ──
 
+export interface MessageHandlerResult {
+  handleMessage: (event: FeishuMessageEvent) => Promise<void>
+  /** Flush all pending debounce buffers and clear timers. */
+  dispose: () => void
+}
+
 export function createMessageHandler(
   deps: HandlerDeps,
-): (event: FeishuMessageEvent) => Promise<void> {
+): MessageHandlerResult {
   const {
     serverUrl,
     sessionManager,
@@ -254,7 +260,7 @@ export function createMessageHandler(
     ? new MessageDebouncer(deps.debounceMs, handleBatchFlush, logger)
     : null
 
-  return async function handleMessage(
+  async function handleMessage(
     event: FeishuMessageEvent,
   ): Promise<void> {
     // ── 1. Dedup check ──
@@ -344,7 +350,7 @@ export function createMessageHandler(
     //          text/post  → if buffer has pending media, add + immediate flush;
     //                       if buffer is empty, skip debounce entirely.
     if (debouncer) {
-      const debounceKey = `${event.sender.sender_id.open_id}:${event.chat_id}`
+      const debounceKey = `${event.sender.sender_id.open_id}:${feishuKey}`
       const isMedia = messageType === "image" || messageType === "file"
 
       if (isMedia) {
@@ -353,28 +359,41 @@ export function createMessageHandler(
           userText,
           event,
           timestamp: Date.now(),
-        })
+        }, { startTimer: false })
 
         if (isFirst) {
-          // Send thinking indicator for first message in batch
-          const thinkMsgId = deps.streamingBridge
-            ? null
-            : await progressTracker.sendThinking(event.chat_id)
-          let firstReactionId: string | null = null
-          if (deps.streamingBridge) {
-            try {
-              const reactionResult = await feishuClient.addReaction(
-                event.message_id, "Typing",
-              )
-              firstReactionId = (reactionResult?.data?.reaction_id as string) ?? null
-            } catch (err) {
-              logger.warn(`addReaction failed: ${err}`)
+          // Mark as initializing BEFORE any async work. While initializing,
+          // subsequent add() calls will buffer but NOT start/reset the timer.
+          // This prevents the race where media2 arrives during init and starts
+          // a timer that fires before context (reaction, thinking) is set.
+          debouncer.setInitializing(debounceKey)
+
+          try {
+            // Send thinking indicator for first message in batch
+            const thinkMsgId = deps.streamingBridge
+              ? null
+              : await progressTracker.sendThinking(event.chat_id)
+            let firstReactionId: string | null = null
+            if (deps.streamingBridge) {
+              try {
+                const reactionResult = await feishuClient.addReaction(
+                  event.message_id, "Typing",
+                )
+                firstReactionId = (reactionResult?.data?.reaction_id as string) ?? null
+              } catch (err) {
+                logger.warn(`addReaction failed: ${err}`)
+              }
             }
+            debouncer.updateContext(debounceKey, {
+              thinkingMessageId: thinkMsgId,
+              reactionId: firstReactionId,
+              reactionMessageId: firstReactionId ? event.message_id : null,
+            })
+          } finally {
+            // Always resolve init, even if sendThinking/addReaction threw.
+            // This ensures the buffer never gets stuck in initializing state.
+            debouncer.resolveInit(debounceKey)
           }
-          debouncer.updateContext(debounceKey, {
-            thinkingMessageId: thinkMsgId,
-            reactionId: firstReactionId,
-          })
         }
 
         return // Wait for timer or follow-up text
@@ -382,13 +401,21 @@ export function createMessageHandler(
 
       // Text/post message: check if there's pending media in buffer
       if (debouncer.hasPending(debounceKey)) {
-        // Buffer has media waiting — add text and flush immediately
+        // Buffer the text message
         debouncer.add(debounceKey, {
           userText,
           event,
           timestamp: Date.now(),
         })
-        debouncer.flush(debounceKey)
+
+        if (debouncer.isInitializing(debounceKey)) {
+          // Init still in progress — context (reaction/thinking) not set yet.
+          // Mark for immediate flush when init completes, preserving context.
+          debouncer.markFlushOnInit(debounceKey)
+        } else {
+          // Init done, context ready — safe to flush now
+          debouncer.flush(debounceKey)
+        }
         return
       }
 
@@ -619,6 +646,7 @@ export function createMessageHandler(
     const lastEvent = context.lastEvent
     const thinkingMessageId = context.thinkingMessageId
     const reactionId = context.reactionId
+    const reactionMessageId = context.reactionMessageId
 
     // Resolve feishuKey from first event
     const feishuKey =
@@ -732,7 +760,7 @@ export function createMessageHandler(
             if (ownershipListener) removeListener(eventListeners, sessionId, ownershipListener)
             if (deps.observer) deps.observer.markSessionFree(sessionId)
           },
-          lastEvent.message_id,
+          reactionMessageId ?? lastEvent.message_id,
           reactionId,
         )
         logger.info(`Response sent for session ${sessionId} (streaming bridge, debounced)`)
@@ -742,7 +770,7 @@ export function createMessageHandler(
         if (deps.observer) deps.observer.markSessionFree(sessionId)
         logger.warn(`Streaming bridge failed in debounced path, falling back to sync: ${err}`)
         if (reactionId) {
-          await feishuClient.deleteReaction(lastEvent.message_id, reactionId).catch(() => {})
+          await feishuClient.deleteReaction(reactionMessageId ?? lastEvent.message_id, reactionId).catch(() => {})
         }
         try {
           const rawText = await postToOpencode()
@@ -957,5 +985,10 @@ export function createMessageHandler(
         content: JSON.stringify({ text: truncated }),
       })
     }
+  }
+
+  return {
+    handleMessage,
+    dispose: () => debouncer?.dispose(true),
   }
 }

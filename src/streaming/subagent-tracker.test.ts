@@ -6,6 +6,15 @@ import {
 } from "./subagent-tracker.js"
 import type { SubtaskDiscovered } from "./event-processor.js"
 
+const runAllTimersCompat = async () => {
+  if (typeof vi.runAllTimersAsync === "function") {
+    await vi.runAllTimersAsync()
+  } else {
+    vi.runAllTimers()
+    await new Promise(r => setImmediate(r))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -71,7 +80,7 @@ describe("SubAgentTracker", () => {
     expect(agent.parentSessionId).toBe("ses-parent")
 
     // Let the background poll resolve
-    await vi.runAllTimersAsync()
+    await runAllTimersCompat()
 
     expect(agent.status).toBe("active")
     expect(agent.childSessionId).toBe("ses-child-1")
@@ -87,8 +96,8 @@ describe("SubAgentTracker", () => {
     const tracker = new SubAgentTracker({ serverUrl: SERVER_URL })
     const agent = await tracker.onSubtaskDiscovered(makeAction())
 
-    // Let all timers and promises resolve
-    await vi.runAllTimersAsync()
+    // Let all timers and promises resolve (2 polls with backoff)
+    for (let i = 0; i < 5; i++) await runAllTimersCompat()
 
     expect(agent.status).toBe("active")
     expect(agent.childSessionId).toBe("ses-child-2")
@@ -103,7 +112,7 @@ describe("SubAgentTracker", () => {
     const agent = await tracker.onSubtaskDiscovered(makeAction())
 
     // Advance through all 5 retries with backoff timers
-    await vi.runAllTimersAsync()
+    for (let i = 0; i < 10; i++) await runAllTimersCompat()
 
     expect(agent.status).toBe("failed")
     expect(agent.childSessionId).toBeUndefined()
@@ -171,7 +180,7 @@ describe("SubAgentTracker", () => {
       makeAction({ prompt: "Task 2" }),
     )
 
-    await vi.runAllTimersAsync()
+    await runAllTimersCompat()
 
     const tracked = tracker.getTrackedSubAgents()
     expect(tracked).toHaveLength(2)

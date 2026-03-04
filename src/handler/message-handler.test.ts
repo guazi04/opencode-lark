@@ -1,8 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { EventListenerMap } from "../utils/event-listeners.js"
 import { createMessageHandler, type HandlerDeps } from "./message-handler.js"
 import { EventProcessor } from "../streaming/event-processor.js"
-import { createMockLogger, createMockFeishuClient } from "../__tests__/setup.js"
+import { createMockLogger, createMockFeishuClient, waitFor } from "../__tests__/setup.js"
+
+const advanceTimers = async (ms: number) => {
+  if (typeof vi.advanceTimersByTimeAsync === "function") {
+    await vi.advanceTimersByTimeAsync(ms)
+  } else {
+    vi.advanceTimersByTime(ms)
+    await new Promise(r => setImmediate(r))
+  }
+}
+
 import type { FeishuMessageEvent } from "../types.js"
 import { FileTooLargeError } from "../feishu/api-client.js"
 
@@ -75,11 +85,15 @@ describe("createMessageHandler", () => {
     vi.restoreAllMocks()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("skips duplicate events", async () => {
     const deps = makeDeps({
       dedup: { isDuplicate: vi.fn().mockReturnValue(true), close: vi.fn() } as any,
     })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(makeEvent())
 
@@ -88,7 +102,7 @@ describe("createMessageHandler", () => {
 
   it("skips unsupported message types with clear log", async () => {
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(
       makeEvent({ message: { message_type: "audio", content: "" } }),
@@ -103,7 +117,7 @@ describe("createMessageHandler", () => {
   it("handles post message type — extracts text from rich content", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const postContent = JSON.stringify({
       zh_cn: {
@@ -124,7 +138,7 @@ describe("createMessageHandler", () => {
       makeEvent({ message: { message_type: "post", content: postContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -141,7 +155,7 @@ describe("createMessageHandler", () => {
   it("handles post message with multiple paragraphs", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const postContent = JSON.stringify({
       en_us: {
@@ -157,7 +171,7 @@ describe("createMessageHandler", () => {
       makeEvent({ message: { message_type: "post", content: postContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -176,7 +190,7 @@ describe("createMessageHandler", () => {
   it("handles post message with empty content gracefully", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     // Empty post content
     const postContent = JSON.stringify({})
@@ -192,7 +206,7 @@ describe("createMessageHandler", () => {
   it("handles flat post format (WebSocket)", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const postContent = JSON.stringify({
       title: "",
@@ -212,7 +226,7 @@ describe("createMessageHandler", () => {
       makeEvent({ message: { message_type: "post", content: postContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -236,7 +250,7 @@ describe("createMessageHandler", () => {
 
   it("skips empty text messages", async () => {
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(
       makeEvent({ message: { message_type: "text", content: JSON.stringify({ text: "  " }) } }),
@@ -248,7 +262,7 @@ describe("createMessageHandler", () => {
   it("handles POST failure with error card", async () => {
     mockFetchError(500)
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(makeEvent())
 
@@ -267,7 +281,7 @@ describe("createMessageHandler", () => {
         updateWithError: vi.fn().mockResolvedValue(undefined),
       },
     })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(makeEvent())
 
@@ -280,12 +294,12 @@ describe("createMessageHandler", () => {
   it("event-driven flow: collects TextDelta and responds on SessionIdle", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -323,11 +337,11 @@ describe("createMessageHandler", () => {
   it("event-driven flow: removes listener after SessionIdle", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -346,11 +360,11 @@ describe("createMessageHandler", () => {
   it("event-driven flow: responds with default text when no TextDelta received", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -375,13 +389,13 @@ describe("createMessageHandler", () => {
     })
     mockFetchOk(syncBody)
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
-      expect(deps.eventListeners.size).toBe(1)
-    })
+    // Advance microtasks under fake timers (waitFor uses setTimeout which is frozen)
+    for (let i = 0; i < 20; i++) await advanceTimers(0)
+    expect(deps.eventListeners.size).toBe(1)
 
     vi.advanceTimersByTime(5 * 60 * 1000 + 100)
 
@@ -393,7 +407,6 @@ describe("createMessageHandler", () => {
     )
     expect(deps.eventListeners.size).toBe(0)
 
-    vi.useRealTimers()
   })
 
   it("sync fallback handles empty response body", async () => {
@@ -401,13 +414,13 @@ describe("createMessageHandler", () => {
 
     mockFetchOk("   ")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
-      expect(deps.eventListeners.size).toBe(1)
-    })
+    // Advance microtasks under fake timers (waitFor uses setTimeout which is frozen)
+    for (let i = 0; i < 20; i++) await advanceTimers(0)
+    expect(deps.eventListeners.size).toBe(1)
 
     vi.advanceTimersByTime(5 * 60 * 1000 + 100)
 
@@ -418,17 +431,16 @@ describe("createMessageHandler", () => {
       "服务器返回了空响应。",
     )
 
-    vi.useRealTimers()
   })
 
   it("adds sessionId to ownedSessions", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.ownedSessions.has("ses-1")).toBe(true)
     })
 
@@ -450,7 +462,7 @@ describe("createMessageHandler", () => {
         updateWithError: vi.fn().mockResolvedValue(undefined),
       },
     })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(
       makeEvent({
@@ -460,7 +472,7 @@ describe("createMessageHandler", () => {
       }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -489,11 +501,11 @@ describe("createMessageHandler", () => {
   it("sends bind notification on first message for a feishuKey", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -517,11 +529,11 @@ describe("createMessageHandler", () => {
   it("does not send bind notification on second message for same feishuKey", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     // First message
     const p1 = handler(makeEvent({ event_id: "evt-1" }))
-    await vi.waitFor(() => { expect(deps.eventListeners.size).toBe(1) })
+    await waitFor(() => { expect(deps.eventListeners.size).toBe(1) })
     ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
       type: "session.status",
       properties: { sessionID: "ses-1", status: { type: "idle" } },
@@ -532,7 +544,7 @@ describe("createMessageHandler", () => {
 
     // Second message (different event_id)
     const p2 = handler(makeEvent({ event_id: "evt-2" }))
-    await vi.waitFor(() => { expect(deps.eventListeners.size).toBe(1) })
+    await waitFor(() => { expect(deps.eventListeners.size).toBe(1) })
     ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
       type: "session.status",
       properties: { sessionID: "ses-1", status: { type: "idle" } },
@@ -557,11 +569,11 @@ describe("createMessageHandler", () => {
       stop: vi.fn(),
     }
     const deps = makeDeps({ observer })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -586,11 +598,11 @@ describe("createMessageHandler", () => {
       stop: vi.fn(),
     }
     const deps = makeDeps({ observer })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -616,11 +628,11 @@ describe("createMessageHandler", () => {
   it("works without observer (backward compatible)", async () => {
     mockFetchOk("")
     const deps = makeDeps() // No observer
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -661,7 +673,7 @@ describe("createMessageHandler", () => {
     })
 
     const deps = makeDeps({ observer, streamingBridge, feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     await handler(makeEvent())
 
@@ -683,13 +695,13 @@ describe("createMessageHandler", () => {
       },
     })
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(
       makeEvent({ parent_id: "parent-msg-1" }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -720,13 +732,13 @@ describe("createMessageHandler", () => {
       new Error("API error"),
     )
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(
       makeEvent({ parent_id: "parent-msg-1" }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -752,11 +764,11 @@ describe("createMessageHandler", () => {
     mockFetchOk("")
     const feishuClient = createMockFeishuClient()
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const handlerPromise = handler(makeEvent())
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -778,14 +790,14 @@ describe("createMessageHandler", () => {
       filename: undefined,
     })
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const imageContent = JSON.stringify({ image_key: "img_abc123" })
     const handlerPromise = handler(
       makeEvent({ message: { message_type: "image", content: imageContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -819,14 +831,14 @@ describe("createMessageHandler", () => {
       filename: undefined,
     })
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const fileContent = JSON.stringify({ file_key: "file_xyz789", file_name: "report.pdf" })
     const handlerPromise = handler(
       makeEvent({ message: { message_type: "file", content: fileContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -859,14 +871,14 @@ describe("createMessageHandler", () => {
       new Error("Download failed"),
     )
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const imageContent = JSON.stringify({ image_key: "img_bad" })
     const handlerPromise = handler(
       makeEvent({ message: { message_type: "image", content: imageContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -897,14 +909,14 @@ describe("createMessageHandler", () => {
   it("handles image message with missing image_key — forwards error", async () => {
     mockFetchOk("")
     const deps = makeDeps()
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const imageContent = JSON.stringify({})
     const handlerPromise = handler(
       makeEvent({ message: { message_type: "image", content: imageContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -929,14 +941,14 @@ describe("createMessageHandler", () => {
       new FileTooLargeError("big_file.zip", 60 * 1024 * 1024),
     )
     const deps = makeDeps({ feishuClient })
-    const handler = createMessageHandler(deps)
+    const { handleMessage: handler } = createMessageHandler(deps)
 
     const fileContent = JSON.stringify({ file_key: "file_xyz", file_name: "big_file.zip" })
     const handlerPromise = handler(
       makeEvent({ message: { message_type: "file", content: fileContent } }),
     )
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(deps.eventListeners.size).toBe(1)
     })
 
@@ -956,5 +968,155 @@ describe("createMessageHandler", () => {
     const body = JSON.parse((postCall![1] as { body: string }).body)
     expect(body.parts[0].text).toContain("exceeds the 50MB size limit")
     expect(body.parts[0].text).toContain("big_file.zip")
+  })
+})
+
+describe("createMessageHandler — debounce race condition", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    mockFetchOk("")
+  })
+
+  it("media1 starts init, media2 arrives → must not flush before init completes", async () => {
+    // Simulate a slow addReaction call that takes significant time.
+    // media2 arrives during that time. The flush must NOT fire before
+    // addReaction finishes and context is set.
+
+    let resolveReaction: ((v: unknown) => void) | undefined
+    const reactionPromise = new Promise((r) => { resolveReaction = r })
+
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.addReaction as ReturnType<typeof vi.fn>).mockReturnValue(reactionPromise)
+
+    // Streaming bridge that captures reaction args to verify later
+    const capturedArgs: Array<{ reactionMessageId: string, reactionId: string | null }> = []
+    const streamingBridge = {
+      handleMessage: vi.fn().mockImplementation(
+        async (
+          _chatId: string, _sessionId: string, _el: EventListenerMap,
+          _ep: unknown, _send: () => Promise<string>,
+          onComplete: (text: string) => void,
+          reactionMessageId: string,
+          reactionId: string | null,
+        ) => {
+          capturedArgs.push({ reactionMessageId, reactionId })
+          onComplete("done")
+        },
+      ),
+    }
+
+    // Use a short debounce window with real timers
+    const deps = makeDeps({
+      feishuClient,
+      streamingBridge,
+      debounceMs: 100,
+    })
+    const { handleMessage: handler, dispose } = createMessageHandler(deps)
+
+    // media1 — starts init, addReaction is pending
+    const p1 = handler(makeEvent({
+      event_id: "evt-img1",
+      message_id: "msg-img1",
+      message: { message_type: "image", content: JSON.stringify({ image_key: "img1" }) },
+    }))
+
+    // Wait a bit for image download + handler to reach addReaction await
+    await new Promise(r => setTimeout(r, 50))
+
+    // media2 arrives while addReaction is still pending
+    const p2 = handler(makeEvent({
+      event_id: "evt-img2",
+      message_id: "msg-img2",
+      message: { message_type: "image", content: JSON.stringify({ image_key: "img2" }) },
+    }))
+
+    // Wait well past the debounce window — flush must NOT fire
+    await new Promise(r => setTimeout(r, 200))
+
+    // The streaming bridge should NOT have been called yet —
+    // init hasn't resolved so the timer was never started
+    expect(streamingBridge.handleMessage).not.toHaveBeenCalled()
+
+    // Now resolve the reaction — init completes, timer starts
+    resolveReaction!({ data: { reaction_id: "r-1" } })
+
+    // Wait for:
+    //  - handler to resume after reaction resolves (microtasks)
+    //  - debounce timer to fire (100ms real time)
+    //  - handleBatchFlush to complete (async, involves mocked I/O)
+    // Use a generous real-time delay, then poll for completion
+    await new Promise(r => setTimeout(r, 300))
+    await waitFor(() => {
+      expect(streamingBridge.handleMessage).toHaveBeenCalledTimes(1)
+    })
+
+    // Verify reaction context was propagated to the streaming bridge
+    expect(capturedArgs).toHaveLength(1)
+    expect(capturedArgs[0]!.reactionId).toBe("r-1")
+    expect(capturedArgs[0]!.reactionMessageId).toBe("msg-img1")
+
+    await p1
+    await p2
+    dispose()
+  })
+
+  it("media + follow-up text → immediate flush, reaction context present", async () => {
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.addReaction as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { reaction_id: "r-42" },
+    })
+
+    const capturedArgs: Array<{ reactionMessageId: string, reactionId: string | null }> = []
+    const streamingBridge = {
+      handleMessage: vi.fn().mockImplementation(
+        async (
+          _chatId: string, _sessionId: string, _el: EventListenerMap,
+          _ep: unknown, _send: () => Promise<string>,
+          onComplete: (text: string) => void,
+          reactionMessageId: string,
+          reactionId: string | null,
+        ) => {
+          capturedArgs.push({ reactionMessageId, reactionId })
+          onComplete("done")
+        },
+      ),
+    }
+
+    const deps = makeDeps({
+      feishuClient,
+      streamingBridge,
+      debounceMs: 100,
+    })
+    const { handleMessage: handler, dispose } = createMessageHandler(deps)
+
+    // 1. Send image first
+    const p1 = handler(makeEvent({
+      event_id: "evt-img",
+      message_id: "msg-img",
+      message: { message_type: "image", content: JSON.stringify({ image_key: "img1" }) },
+    }))
+
+    // Wait for the handler to complete init (image download + addReaction + updateContext + resolveInit)
+    await p1
+
+    // 2. Send follow-up text — should trigger immediate flush (hasPending check + flush)
+    const p2 = handler(makeEvent({
+      event_id: "evt-text",
+      message_id: "msg-text",
+      message: { message_type: "text", content: JSON.stringify({ text: "describe this" }) },
+    }))
+
+    // The streaming bridge should be called after flush
+    await waitFor(() => {
+      expect(streamingBridge.handleMessage).toHaveBeenCalledTimes(1)
+    })
+
+    // Verify reaction context was present (not lost due to race)
+    expect(capturedArgs).toHaveLength(1)
+    expect(capturedArgs[0]!.reactionId).toBe("r-42")
+    expect(capturedArgs[0]!.reactionMessageId).toBe("msg-img")
+
+    await p2
+    dispose()
   })
 })
