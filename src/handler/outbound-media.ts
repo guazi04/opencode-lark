@@ -36,7 +36,7 @@ const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp)$/i
 // Match absolute paths or tilde paths with file extensions.
 // Anchored to start-of-string, whitespace, or certain punctuation to avoid matching URL path components.
 const FILE_PATH_REGEX =
-  /(?:^|[\s"'`(])((~\/|\/)[^\s"'`<>|*?\n]+\.(?:png|jpg|jpeg|gif|webp|pdf|svg|doc|docx|xls|xlsx|csv|zip|tar|gz|mp3|mp4|wav|mov|avi|txt|md|json|yaml|yml|html|css|js|ts|py))\b/gim
+  /(?:^|[\s"'`(,:;>}\]）：，；】》])((~\/|\/)([^\s"'`<>|*?\n]+\.(?:png|jpg|jpeg|gif|webp|pdf|svg|doc|docx|xls|xlsx|csv|zip|tar|gz|mp3|mp4|wav|mov|avi|txt|md|json|yaml|yml|html|css|js|ts|py)))\b/gim
 
 // Also match backtick file: URI pattern
 const BACKTICK_FILE_REGEX = /`file:(\/[\w./-]+\.[\w.]+)`/gi
@@ -138,7 +138,10 @@ export function createOutboundMediaHandler(
   return {
     async sendDetectedFiles(chatId: string, text: string): Promise<void> {
       const paths = extractFilePaths(text)
-      if (paths.length === 0) return
+      if (paths.length === 0) {
+        logger.debug(`No file paths detected in response text (${text.length} chars)`)
+        return
+      }
 
       logger.info(`Detected ${paths.length} file path(s) in agent reply, attempting upload`)
 
