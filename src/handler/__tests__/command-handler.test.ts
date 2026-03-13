@@ -51,7 +51,7 @@ describe("createCommandHandler", () => {
   }
 
   describe("/new", () => {
-    it("creates a new session and unbinds the mapping", async () => {
+    it("creates a new session and binds to it via setMapping", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ id: "ses-new" }),
@@ -68,9 +68,10 @@ describe("createCommandHandler", () => {
         body: JSON.stringify({ title: "Feishu chat chat-1" }),
       })
       expect(mockSessionManager.deleteMapping).toHaveBeenCalledWith("chat-1")
+      expect(mockSessionManager.setMapping).toHaveBeenCalledWith("chat-1", "ses-new")
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "text",
-        content: JSON.stringify({ text: "已创建新会话: ses-new" }),
+        content: JSON.stringify({ text: "已创建并切换到新会话: ses-new" }),
       })
     })
 
@@ -228,60 +229,6 @@ describe("createCommandHandler", () => {
     })
   })
 
-  describe("/compact", () => {
-    it("sends session.compact command", async () => {
-      mockFetch.mockResolvedValueOnce({ ok: true })
-      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
-
-      const handler = createHandler()
-      const result = await handler("chat-1", "chat-1", "msg-1", "/compact")
-
-      expect(result).toBe(true)
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://test:4096/session/ses-123/command",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command: "session.compact", arguments: "" }),
-        },
-      )
-    })
-
-    it("replies when no session is bound", async () => {
-      const sm = createMockSessionManager(null)
-      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
-
-      const handler = createHandler(sm)
-      const result = await handler("chat-1", "chat-1", "msg-1", "/compact")
-
-      expect(result).toBe(true)
-      expect(mockFetch).not.toHaveBeenCalled()
-      expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
-        msg_type: "text",
-        content: JSON.stringify({ text: "当前没有绑定的会话。" }),
-      })
-    })
-  })
-
-  describe("/share", () => {
-    it("sends session.share command", async () => {
-      mockFetch.mockResolvedValueOnce({ ok: true })
-      mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
-
-      const handler = createHandler()
-      const result = await handler("chat-1", "chat-1", "msg-1", "/share")
-
-      expect(result).toBe(true)
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://test:4096/session/ses-123/command",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command: "session.share", arguments: "" }),
-        },
-      )
-    })
-  })
 
   describe("/help and /", () => {
     it("/help sends interactive card", async () => {

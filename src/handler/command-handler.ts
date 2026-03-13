@@ -104,16 +104,6 @@ function buildHelpCard(): Record<string, unknown> {
           },
           {
             tag: "button",
-            text: { tag: "plain_text", content: "📦 压缩历史" },
-            value: { action: "command_execute", command: "/compact" },
-          },
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: "🔗 分享会话" },
-            value: { action: "command_execute", command: "/share" },
-          },
-          {
-            tag: "button",
             text: { tag: "plain_text", content: "🛑 中止任务" },
             type: "danger",
             value: { action: "command_execute", command: "/abort" },
@@ -157,8 +147,9 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
 
     const data = (await resp.json()) as { id: string }
     sessionManager.deleteMapping(feishuKey)
-    logger.info(`/new: created session ${data.id}, unbound ${feishuKey}`)
-    await replyText(chatId, messageId, `已创建新会话: ${data.id}`)
+    sessionManager.setMapping(feishuKey, data.id)
+    logger.info(`/new: created session ${data.id}, bound ${feishuKey}`)
+    await replyText(chatId, messageId, `已创建并切换到新会话: ${data.id}`)
   }
 
   async function handleAbort(
@@ -252,39 +243,6 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     }
   }
 
-  async function handleSessionCommand(
-    feishuKey: string,
-    chatId: string,
-    messageId: string,
-    command: string,
-  ): Promise<void> {
-    const mapping = sessionManager.getSession(feishuKey)
-    if (!mapping) {
-      await replyText(chatId, messageId, "当前没有绑定的会话。")
-      return
-    }
-
-    const resp = await fetch(
-      `${serverUrl}/session/${mapping.session_id}/command`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command, arguments: "" }),
-      },
-    )
-
-    if (!resp.ok) {
-      throw new Error(`Command ${command} failed: HTTP ${resp.status}`)
-    }
-
-    logger.info(`/${command}: executed on session ${mapping.session_id}`)
-    await replyText(
-      chatId,
-      messageId,
-      `已执行 /${command} (会话: ${mapping.session_id})`,
-    )
-  }
-
   async function handleHelp(
     _chatId: string,
     messageId: string,
@@ -333,14 +291,6 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
           await handleConnect(feishuKey, chatId, messageId, targetSessionId)
           return true
         }
-
-        case "/compact":
-          await handleSessionCommand(feishuKey, chatId, messageId, "session.compact")
-          return true
-
-        case "/share":
-          await handleSessionCommand(feishuKey, chatId, messageId, "session.share")
-          return true
 
         case "/":
         case "/help":
