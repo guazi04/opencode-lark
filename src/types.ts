@@ -14,7 +14,7 @@ export interface FeishuMessageEvent {
   parent_id?: string
   sender: FeishuSender
   message: FeishuMessageContent
-  mentions?: Array<{ id: { open_id: string } }>
+  mentions?: Array<{ id: { open_id: string }; name?: string; key?: string }>
 }
 
 export interface FeishuSender {

@@ -8,7 +8,7 @@
  *     2. Sub-agent flow:      Message triggers subtask → SubtaskDiscovered → button → child messages
  *     3. Error flow:          opencode returns error → error card sent
  *   Suite 2 – Session sharing:
- *     4. Session discovery + bind notification
+ *     4. Session discovery + Lark context signature
  *     5. Feishu-initiated message processed correctly (observer skips owned)
  *     6. TUI-initiated message forwarded to Feishu
  *     7. Session reuse — no duplicate bind notification
@@ -422,10 +422,10 @@ describe("session sharing", () => {
   }
 
   // ─────────────────────────────────────────
-  // Scenario 5: Session discovery + bind notification
+  // Scenario 5: Session discovery + Lark context signature
   // ─────────────────────────────────────────
 
-  it("session discovery + bind notification", async () => {
+  it("session discovery + Lark context signature", async () => {
     const sessionId = "ses-shared-1"
     const ownedSessions = new Set<string>()
     const eventListeners: EventListenerMap = new Map()
@@ -485,14 +485,14 @@ describe("session sharing", () => {
       expect(listeners!.size).toBeGreaterThanOrEqual(3)
     })
 
-    // Assert: bind notification was sent
-    expect(feishuClient.sendMessage).toHaveBeenCalledWith(
-      "chat-e2e",
-      expect.objectContaining({
-        msg_type: "text",
-        content: JSON.stringify({ text: "已连接 session: " + sessionId }),
-      }),
+    // Assert: Lark context signature included in POST (not bind notification)
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toContain("[Lark context]")
 
     // Assert: session is owned
     expect(ownedSessions.has(sessionId)).toBe(true)
@@ -706,7 +706,7 @@ describe("session sharing", () => {
   // Scenario 8: Session reuse — no duplicate bind notification
   // ─────────────────────────────────────────
 
-  it("session reuse: no duplicate bind notification on second message", async () => {
+  it("session reuse: no bind notification, Lark context only on first message", async () => {
     const sessionId = "ses-shared-4"
     const ownedSessions = new Set<string>()
     const eventListeners: EventListenerMap = new Map()
@@ -745,7 +745,7 @@ describe("session sharing", () => {
       observer,
     })
 
-    // ── First message → bind notification expected ──
+    // ── First message ──
     const promise1 = handleMessage(makeFeishuEvent({
       event_id: "evt-reuse-1",
       message: { message_type: "text", content: JSON.stringify({ text: "First" }) },
@@ -770,17 +770,26 @@ describe("session sharing", () => {
 
     await promise1
 
-    // Count bind notifications so far (should be exactly 1)
-    const bindCalls1 = (feishuClient.sendMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
+    // No bind notification sent at all (feature removed)
+    const bindCalls = (feishuClient.sendMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
       (call: unknown[]) => {
         const payload = call[1] as Record<string, unknown>
         if (typeof payload?.content !== "string") return false
-        return (payload.content as string).includes("已连接 session")
+        return (payload.content as string).includes("\u5df2\u8fde\u63a5 session")
       },
     )
-    expect(bindCalls1.length).toBe(1)
+    expect(bindCalls.length).toBe(0)
 
-    // ── Second message → NO additional bind notification ──
+    // Verify first POST has full Lark context
+    const fetchCalls1 = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCalls1 = fetchCalls1.filter(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
+    )
+    expect(postCalls1.length).toBeGreaterThanOrEqual(1)
+    const firstBody = JSON.parse((postCalls1[0]![1] as { body: string }).body)
+    expect(firstBody.parts[0].text).toContain("[Lark context]")
+
+    // ── Second message ──
     const promise2 = handleMessage(makeFeishuEvent({
       event_id: "evt-reuse-2",
       message: { message_type: "text", content: JSON.stringify({ text: "Second" }) },
@@ -805,19 +814,15 @@ describe("session sharing", () => {
 
     await promise2
 
-    // Bind notifications should still be exactly 1 (no duplicate)
-    const bindCalls2 = (feishuClient.sendMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call: unknown[]) => {
-        const payload = call[1] as Record<string, unknown>
-        if (typeof payload?.content !== "string") return false
-        return (payload.content as string).includes("已连接 session")
-      },
+    // Second POST should have lightweight tag (not full context)
+    const fetchCalls2 = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCalls2 = fetchCalls2.filter(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
-    expect(bindCalls2.length).toBe(1)
-
-    // Session manager should have been called for both messages (cache is in session-manager)
-    // but getOrCreate is mocked and always returns same sessionId
+    expect(postCalls2.length).toBeGreaterThanOrEqual(2)
+    const secondBody = JSON.parse((postCalls2[1]![1] as { body: string }).body)
+    expect(secondBody.parts[0].text).toContain("[Lark] from:")
+    expect(secondBody.parts[0].text).not.toContain("[Lark context]")
   })
-    // but getOrCreate is mocked and always returns same sessionId
-  })
+})
 })

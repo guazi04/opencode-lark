@@ -40,6 +40,8 @@ export interface FeishuApiClient {
   getBotInfo(): Promise<{ app_name: string; open_id: string }>
   uploadImage(imageData: Buffer, imageType?: string): Promise<string>
   uploadFile(fileData: Buffer, fileName: string, fileType?: string): Promise<string>
+  getChatInfo(chatId: string): Promise<{ name: string; chat_type: string }>
+  getUserInfo(userId: string): Promise<{ name: string }>
 }
 
 
@@ -141,6 +143,11 @@ export function createFeishuApiClient(options: FeishuApiClientOptions): FeishuAp
   let tokenState: TokenState | null = null
   let refreshPromise: Promise<string> | null = null
 
+  // ── Caches for chat/user info (TTL-based) ──
+  const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+  const MAX_CACHE_SIZE = 200
+  const chatInfoCache = new Map<string, { value: { name: string; chat_type: string }; ts: number }>()
+  const userInfoCache = new Map<string, { value: { name: string }; ts: number }>()
   async function getToken(): Promise<string> {
     const now = Date.now()
 
@@ -314,6 +321,43 @@ export function createFeishuApiClient(options: FeishuApiClientOptions): FeishuAp
         throw new Error(`Feishu uploadFile error: ${data.code} - ${data.msg}`)
       }
       return (data.data?.file_key as string) ?? ""
+    },
+
+    async getChatInfo(chatId) {
+      // Check cache first
+      const cached = chatInfoCache.get(chatId)
+      if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+        return cached.value
+      }
+      const resp = await apiRequest("GET", `/im/v1/chats/${chatId}`)
+      const chatData = resp.data as { name?: string; chat_type?: string } | undefined
+      const result = {
+        name: chatData?.name ?? "",
+        chat_type: chatData?.chat_type ?? "",
+      }
+      chatInfoCache.set(chatId, { value: result, ts: Date.now() })
+      // Evict oldest entries if cache grows too large
+      if (chatInfoCache.size > MAX_CACHE_SIZE) {
+        const oldest = chatInfoCache.keys().next().value
+        if (oldest) chatInfoCache.delete(oldest)
+      }
+      return result
+    },
+
+    async getUserInfo(userId) {
+      const cached = userInfoCache.get(userId)
+      if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+        return cached.value
+      }
+      const resp = await apiRequest("GET", `/contact/v3/users/${userId}?user_id_type=open_id`)
+      const userData = resp.data?.user as { name?: string } | undefined
+      const result = { name: userData?.name ?? "" }
+      userInfoCache.set(userId, { value: result, ts: Date.now() })
+      if (userInfoCache.size > MAX_CACHE_SIZE) {
+        const oldest = userInfoCache.keys().next().value
+        if (oldest) userInfoCache.delete(oldest)
+      }
+      return result
     },
   }
 }

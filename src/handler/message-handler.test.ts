@@ -153,7 +153,7 @@ describe("createMessageHandler", () => {
 
     await handlerPromise
 
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalled()
+    expect(deps.progressTracker.updateWithResponse).toHaveBeenCalled()
   })
 
   it("handles post message with multiple paragraphs", async () => {
@@ -188,7 +188,7 @@ describe("createMessageHandler", () => {
 
     await handlerPromise
 
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalled()
+    expect(deps.progressTracker.updateWithResponse).toHaveBeenCalled()
   })
 
   it("handles post message with empty content gracefully", async () => {
@@ -502,7 +502,7 @@ describe("createMessageHandler", () => {
   })
 
 
-  it("sends bind notification on first message for a feishuKey", async () => {
+  it("includes Lark context with chat and sender info on first message", async () => {
     mockFetchOk("")
     const deps = makeDeps()
     const { handleMessage: handler } = createMessageHandler(deps)
@@ -520,17 +520,19 @@ describe("createMessageHandler", () => {
 
     await handlerPromise
 
-    // Bind notification was sent
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
-      "chat-1",
-      expect.objectContaining({
-        msg_type: "text",
-        content: expect.stringContaining("\u5df2\u8fde\u63a5 session: ses-1"),
-      }),
+    // Verify POST body contains Lark context signature with sender info
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toContain("[Lark context]")
+    expect(body.parts[0].text).toContain("Sender: Test User")
+    expect(body.parts[0].text).toContain("Save files")
   })
 
-  it("does not send bind notification on second message for same feishuKey", async () => {
+  it("includes lightweight Lark tag with sender on subsequent messages", async () => {
     mockFetchOk("")
     const deps = makeDeps()
     const { handleMessage: handler } = createMessageHandler(deps)
@@ -544,8 +546,6 @@ describe("createMessageHandler", () => {
     }))
     await p1
 
-    const sendCallCount = (deps.feishuClient.sendMessage as any).mock.calls.length
-
     // Second message (different event_id)
     const p2 = handler(makeEvent({ event_id: "evt-2" }))
     await waitFor(() => { expect(deps.eventListeners.size).toBe(1) })
@@ -555,11 +555,91 @@ describe("createMessageHandler", () => {
     }))
     await p2
 
-    // Bind notification should only have been sent once (from first message)
-    const bindCalls = (deps.feishuClient.sendMessage as any).mock.calls.filter(
-      (c: any[]) => JSON.parse(c[1].content).text?.includes("\u5df2\u8fde\u63a5 session:"),
+    // Second POST should have lightweight tag with sender name
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCalls = fetchCalls.filter(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
-    expect(bindCalls).toHaveLength(1)
+    expect(postCalls.length).toBeGreaterThanOrEqual(2)
+    const secondBody = JSON.parse((postCalls[1]![1] as { body: string }).body)
+    expect(secondBody.parts[0].text).toContain("[Lark] from: Test User")
+    expect(secondBody.parts[0].text).not.toContain("[Lark context]")
+  })
+
+  it("includes group chat name in Lark context for group messages", async () => {
+    mockFetchOk("")
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.getChatInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
+      name: "My Project Group", chat_type: "group",
+    })
+    const deps = makeDeps({
+      feishuClient,
+      botOpenId: "bot-1",
+      progressTracker: {
+        sendThinking: vi.fn().mockResolvedValue(null),
+        updateWithResponse: vi.fn().mockResolvedValue(undefined),
+        updateWithError: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+    const { handleMessage: handler } = createMessageHandler(deps)
+
+    const handlerPromise = handler(
+      makeEvent({
+        chat_type: "group",
+        message_id: "group-msg-1",
+        mentions: [{ id: { open_id: "bot-1" } }],
+      }),
+    )
+
+    await waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const postCall = fetchCalls.find(
+      (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
+    )
+    expect(postCall).toBeDefined()
+    const body = JSON.parse((postCall![1] as { body: string }).body)
+    expect(body.parts[0].text).toContain("Chat: My Project Group (group)")
+    expect(body.parts[0].text).toContain("[Lark context]")
+  })
+
+  it("does not send bind notification on any message", async () => {
+    mockFetchOk("")
+    const deps = makeDeps()
+    const { handleMessage: handler } = createMessageHandler(deps)
+
+    const handlerPromise = handler(makeEvent())
+
+    await waitFor(() => {
+      expect(deps.eventListeners.size).toBe(1)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    // No bind notification should be sent (removed feature)
+    const sendCalls = (deps.feishuClient.sendMessage as any).mock.calls
+    const bindCalls = sendCalls.filter(
+      (c: any[]) => {
+        try {
+          return JSON.parse(c[1]?.content)?.text?.includes("\u5df2\u8fde\u63a5 session:")
+        } catch { return false }
+      },
+    )
+    expect(bindCalls).toHaveLength(0)
   })
 
   it("calls observer.observe() with correct args after session resolution", async () => {

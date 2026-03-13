@@ -240,6 +240,72 @@ async function fetchQuotedText(
 
 // ── Factory ──
 
+/** Resolve sender display name: try mentions first, then API, fallback to open_id. */
+async function resolveSenderName(
+  event: FeishuMessageEvent,
+  feishuClient: FeishuApiClient,
+  logger: Logger,
+): Promise<string> {
+  const openId = event.sender.sender_id.open_id
+
+  // Try mentions — the sender might have @mentioned themselves or be in the list
+  if (event.mentions) {
+    for (const m of event.mentions) {
+      if (m.id.open_id === openId && m.name) return m.name
+    }
+  }
+
+  // Try getUserInfo API
+  try {
+    const userInfo = await feishuClient.getUserInfo(openId)
+    if (userInfo.name) return userInfo.name
+  } catch (err) {
+    logger.warn(`Failed to resolve sender name for ${openId}: ${err}`)
+  }
+
+  return openId
+}
+
+/** Build the Lark context signature appended to the first message in a session. */
+async function buildLarkContextSignature(
+  event: FeishuMessageEvent,
+  feishuClient: FeishuApiClient,
+  logger: Logger,
+): Promise<string> {
+  const attachDir = getAttachmentsDir()
+  const senderName = await resolveSenderName(event, feishuClient, logger)
+  const openId = event.sender.sender_id.open_id
+  const chatType = event.chat_type === "group" ? "group" : "p2p"
+
+  let chatLabel: string
+  if (event.chat_type === "group") {
+    try {
+      const chatInfo = await feishuClient.getChatInfo(event.chat_id)
+      chatLabel = chatInfo.name ? `${chatInfo.name} (${chatType})` : `(${chatType})`
+    } catch {
+      chatLabel = `(${chatType})`
+    }
+  } else {
+    chatLabel = `(${chatType})`
+  }
+
+  return [
+    "[Lark context]",
+    `Chat: ${chatLabel}`,
+    `Sender: ${senderName} (${openId})`,
+    `Save files → ${attachDir} (auto-sent to user)`,
+  ].join("\n")
+}
+
+/** Build lightweight Lark tag for subsequent messages (includes sender identity). */
+async function buildLarkLightTag(
+  event: FeishuMessageEvent,
+  feishuClient: FeishuApiClient,
+  logger: Logger,
+): Promise<string> {
+  const senderName = await resolveSenderName(event, feishuClient, logger)
+  return `[Lark] from: ${senderName}`
+}
 export interface MessageHandlerResult {
   handleMessage: (event: FeishuMessageEvent) => Promise<void>
   /** Flush all pending debounce buffers and clear timers. */
@@ -260,7 +326,7 @@ export function createMessageHandler(
     ownedSessions,
     logger,
   } = deps
-  const notifiedFeishuKeys = new Set<string>()
+
   const signedSessions = new Set<string>()
 
   // ── Debouncer (opt-in via debounceMs > 0) ──
@@ -449,14 +515,6 @@ export function createMessageHandler(
     // ── 6. Get/create session ──
     let sessionId = await sessionManager.getOrCreate(feishuKey)
     ownedSessions.add(sessionId)
-    // ── 6a. First-bind notification ──
-    if (!notifiedFeishuKeys.has(feishuKey)) {
-      notifiedFeishuKeys.add(feishuKey)
-      await feishuClient.sendMessage(event.chat_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: "已连接 session: " + sessionId }),
-      })
-    }
 
     // ── 6b. Wire observer ──
     if (deps.observer) {
@@ -485,15 +543,16 @@ export function createMessageHandler(
         // Prevent unbounded growth — re-signing is harmless
         if (signedSessions.size > 1000) signedSessions.clear()
         signedSessions.add(sessionId)
-        const attachDir = getAttachmentsDir()
+        const contextSig = await buildLarkContextSignature(event, feishuClient, logger)
         parts[0] = {
           type: "text",
-          text: parts[0].text + `\n[Lark] Save files → ${attachDir} (auto-sent to user)`,
+          text: parts[0].text + `\n${contextSig}`,
         }
       } else {
+        const lightTag = await buildLarkLightTag(event, feishuClient, logger)
         parts[0] = {
           type: "text",
-          text: parts[0].text + `\n[Lark]`,
+          text: parts[0].text + `\n${lightTag}`,
         }
       }
     }
@@ -724,15 +783,6 @@ export function createMessageHandler(
     let sessionId = await sessionManager.getOrCreate(feishuKey)
     ownedSessions.add(sessionId)
 
-    // First-bind notification
-    if (!notifiedFeishuKeys.has(feishuKey)) {
-      notifiedFeishuKeys.add(feishuKey)
-      await feishuClient.sendMessage(event.chat_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: "已连接 session: " + sessionId }),
-      })
-    }
-
     // Wire observer
     if (deps.observer) {
       deps.observer.observe(sessionId, event.chat_id)
@@ -759,15 +809,16 @@ export function createMessageHandler(
       if (!signedSessions.has(sessionId)) {
         if (signedSessions.size > 1000) signedSessions.clear()
         signedSessions.add(sessionId)
-        const attachDir = getAttachmentsDir()
+        const contextSig = await buildLarkContextSignature(event, feishuClient, logger)
         parts[0] = {
           type: "text",
-          text: parts[0].text + `\n[Lark] Save files → ${attachDir} (auto-sent to user)`,
+          text: parts[0].text + `\n${contextSig}`,
         }
       } else {
+        const lightTag = await buildLarkLightTag(event, feishuClient, logger)
         parts[0] = {
           type: "text",
-          text: parts[0].text + `\n[Lark]`,
+          text: parts[0].text + `\n${lightTag}`,
         }
       }
     }
