@@ -14,6 +14,7 @@ import type { ProgressTracker } from "../session/progress-tracker.js"
 import type { Logger } from "../utils/logger.js"
 import type { FeishuMessageEvent } from "../types.js"
 import type { StreamingBridge } from "./streaming-integration.js"
+import { buildFinalResponseCard } from "./streaming-integration.js"
 import type { SessionObserver } from "../streaming/session-observer.js"
 import type { EventListenerMap } from "../utils/event-listeners.js"
 import { addListener, removeListener } from "../utils/event-listeners.js"
@@ -685,9 +686,10 @@ export function createMessageHandler(
         } catch (postErr) {
           logger.error(`Sync fallback POST also failed: ${postErr}`)
           const errorMessage = "处理请求时出错了。"
+          const card = buildFinalResponseCard(errorMessage)
           await feishuClient.replyMessage(event.message_id, {
-            msg_type: "text",
-            content: JSON.stringify({ text: errorMessage }),
+            msg_type: "interactive",
+            content: JSON.stringify(card),
           })
         }
         logger.info(`Response sent for session ${sessionId} (sync fallback)`)
@@ -707,9 +709,10 @@ export function createMessageHandler(
           "处理请求时出错了。",
         )
       } else {
+        const card = buildFinalResponseCard("抱歉，处理请求时出错了。")
         await feishuClient.sendMessage(event.chat_id, {
-          msg_type: "text",
-          content: JSON.stringify({ text: "抱歉，处理请求时出错了。" }),
+          msg_type: "interactive",
+          content: JSON.stringify(card),
         })
       }
       return
@@ -944,9 +947,10 @@ export function createMessageHandler(
         } catch (postErr) {
           logger.error(`Sync fallback POST also failed in debounced path: ${postErr}`)
           const errorMessage = "处理请求时出错了。"
+          const card = buildFinalResponseCard(errorMessage)
           await feishuClient.replyMessage(lastEvent.message_id, {
-            msg_type: "text",
-            content: JSON.stringify({ text: errorMessage }),
+            msg_type: "interactive",
+            content: JSON.stringify(card),
           })
         }
         return
@@ -962,9 +966,10 @@ export function createMessageHandler(
       if (thinkingMessageId) {
         await progressTracker.updateWithError(thinkingMessageId, "处理请求时出错了。")
       } else {
+        const card = buildFinalResponseCard("抱歉，处理请求时出错了。")
         await feishuClient.sendMessage(event.chat_id, {
-          msg_type: "text",
-          content: JSON.stringify({ text: "抱歉，处理请求时出错了。" }),
+          msg_type: "interactive",
+          content: JSON.stringify(card),
         })
       }
       return
@@ -1087,9 +1092,10 @@ export function createMessageHandler(
           "服务器返回了空响应。",
         )
       } else {
+        const card = buildFinalResponseCard("抱歉，服务器返回了空响应。")
         await feishuClient.sendMessage(event.chat_id, {
-          msg_type: "text",
-          content: JSON.stringify({ text: "抱歉，服务器返回了空响应。" }),
+          msg_type: "interactive",
+          content: JSON.stringify(card),
         })
       }
       return
@@ -1137,18 +1143,20 @@ export function createMessageHandler(
         responseText.length > 4000
           ? responseText.slice(0, 4000) + "\n\n...(truncated)"
           : responseText
+      const card = buildFinalResponseCard(truncated)
       await feishuClient.sendMessage(event.chat_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: truncated }),
+        msg_type: "interactive",
+        content: JSON.stringify(card),
       })
     } else {
       const truncated =
         responseText.length > 4000
           ? responseText.slice(0, 4000) + "\n\n...(truncated)"
           : responseText
+      const card = buildFinalResponseCard(truncated)
       await feishuClient.replyMessage(event.message_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: truncated }),
+        msg_type: "interactive",
+        content: JSON.stringify(card),
       })
     }
   }

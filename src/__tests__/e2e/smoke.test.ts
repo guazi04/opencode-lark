@@ -64,7 +64,11 @@ function createMockSessionManager(sessionId = "ses-e2e-1"): SessionManager {
   return {
     getOrCreate: vi.fn().mockResolvedValue(sessionId),
     getSession: vi.fn().mockReturnValue(null),
+    getExisting: vi.fn().mockResolvedValue(sessionId),
+    deleteMapping: vi.fn().mockReturnValue(true),
+    setMapping: vi.fn().mockReturnValue(true),
     cleanup: vi.fn().mockReturnValue(0),
+    validateAndCleanupStale: vi.fn().mockResolvedValue(0),
   }
 }
 
@@ -144,6 +148,7 @@ describe("E2E Smoke Tests", () => {
       feishuClient,
       subAgentTracker,
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
@@ -205,11 +210,15 @@ describe("E2E Smoke Tests", () => {
 
     // With lazy card creation, card is only created when a ToolStateChange event arrives.
     // Since this test only sends text deltas, no card is created.
-    // Instead, verify that replyMessage was called with the text response.
     expect(feishuClient.replyMessage).toHaveBeenCalledWith(
       "msg-e2e-1",
-      expect.objectContaining({ msg_type: "text" }),
+      expect.objectContaining({ msg_type: "interactive" }),
     )
+
+    const replyArgs = (feishuClient.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(replyArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello World!")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
 
     // With lazy card creation, card was never created (no tool events), so no close needed
 
@@ -260,6 +269,7 @@ describe("E2E Smoke Tests", () => {
       feishuClient,
       subAgentTracker,
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
@@ -363,7 +373,6 @@ describe("E2E Smoke Tests", () => {
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
-      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
       progressTracker,
@@ -451,12 +460,12 @@ describe("session sharing", () => {
         if (set) { set.delete(fn); if (set.size === 0) eventListeners.delete(sid) }
       },
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
       serverUrl: "http://127.0.0.1:4096",
       sessionManager: createMockSessionManager(sessionId),
-      dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       dedup: { isDuplicate: vi.fn().mockReturnValue(false), close: vi.fn() } as any,
       eventProcessor,
       feishuClient,
@@ -486,7 +495,7 @@ describe("session sharing", () => {
     })
 
     // Assert: Lark context signature included in POST (not bind notification)
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -542,6 +551,7 @@ describe("session sharing", () => {
         if (set) { set.delete(fn); if (set.size === 0) eventListeners.delete(sid) }
       },
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
@@ -630,6 +640,7 @@ describe("session sharing", () => {
         if (set) { set.delete(fn); if (set.size === 0) eventListeners.delete(sid) }
       },
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
@@ -694,12 +705,14 @@ describe("session sharing", () => {
     await waitFor(() => {
       expect(feishuClient.sendMessage).toHaveBeenCalledWith(
         "chat-e2e",
-        {
-          msg_type: "text",
-          content: JSON.stringify({ text: "Hello from TUI" }),
-        },
+        expect.objectContaining({ msg_type: "interactive" }),
       )
     })
+
+    const sendArgs = (feishuClient.sendMessage as any).mock.calls[0]
+    const card = JSON.parse(sendArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello from TUI")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   // ─────────────────────────────────────────
@@ -730,6 +743,7 @@ describe("session sharing", () => {
         if (set) { set.delete(fn); if (set.size === 0) eventListeners.delete(sid) }
       },
       logger,
+      seenInteractiveIds: new Set<string>(),
     })
 
     const { handleMessage } = createMessageHandler({
@@ -781,7 +795,7 @@ describe("session sharing", () => {
     expect(bindCalls.length).toBe(0)
 
     // Verify first POST has full Lark context
-    const fetchCalls1 = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls1 = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCalls1 = fetchCalls1.filter(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -815,7 +829,7 @@ describe("session sharing", () => {
     await promise2
 
     // Second POST should have lightweight tag (not full context)
-    const fetchCalls2 = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls2 = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCalls2 = fetchCalls2.filter(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )

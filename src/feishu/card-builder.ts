@@ -6,6 +6,18 @@
  */
 
 
+// ── Menu action row (shared across cards) ──
+const menuActionRow = {
+  tag: "action",
+  actions: [
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "⚡菜单" },
+      value: { action: "command_execute", command: "/help" },
+    },
+  ],
+}
+
 export function buildThinkingCard(): Record<string, unknown> {
   return {
     config: { wide_screen_mode: true },
@@ -24,6 +36,7 @@ export function buildThinkingCard(): Record<string, unknown> {
           content: "正在处理你的消息，请稍候...",
         },
       },
+      menuActionRow,
     ],
   }
 }
@@ -53,6 +66,7 @@ export function buildResponseCard(text: string): Record<string, unknown> {
           content: truncated,
         },
       },
+      menuActionRow,
     ],
   }
 }
@@ -76,6 +90,7 @@ export function buildErrorCard(msg: string): Record<string, unknown> {
           content: msg || "处理请求时发生错误，请稍后重试。",
         },
       },
+      menuActionRow,
     ],
   }
 }

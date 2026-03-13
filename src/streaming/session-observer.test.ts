@@ -31,6 +31,7 @@ function makeDeps() {
       error: vi.fn(),
       debug: vi.fn(),
     },
+    seenInteractiveIds: new Set<string>(),
     capturedListeners,
   }
   return deps
@@ -98,10 +99,15 @@ describe("SessionObserver", () => {
 
     listener(sessionIdleEvent("ses-1"))
 
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Hello from TUI" }),
-    })
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
+      "chat-1",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+
+    const callArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
+    const card = JSON.parse(callArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello from TUI")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("ignores events for owned messageIDs (markOwned)", () => {
@@ -143,20 +149,26 @@ describe("SessionObserver", () => {
     listener(sessionIdleEvent("ses-1"))
 
     expect(deps.feishuClient.sendMessage).toHaveBeenCalledTimes(1)
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "First turn" }),
-    })
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
+      "chat-1",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+    const firstArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
+    const firstCard = JSON.parse(firstArgs?.[1]?.content as string)
+    expect(firstCard.elements?.[0]?.content).toBe("First turn")
 
     // Turn 2
     listener(textDeltaEvent("ses-1", "msg-2", "Second turn"))
     listener(sessionIdleEvent("ses-1"))
 
     expect(deps.feishuClient.sendMessage).toHaveBeenCalledTimes(2)
-    expect(deps.feishuClient.sendMessage).toHaveBeenLastCalledWith("chat-1", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Second turn" }),
-    })
+    expect(deps.feishuClient.sendMessage).toHaveBeenLastCalledWith(
+      "chat-1",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+    const secondArgs = (deps.feishuClient.sendMessage as any).mock.calls[1]
+    const secondCard = JSON.parse(secondArgs?.[1]?.content as string)
+    expect(secondCard.elements?.[0]?.content).toBe("Second turn")
   })
 
   it("handles SessionIdle with no buffered text (no-op)", () => {
@@ -251,10 +263,14 @@ describe("SessionObserver", () => {
     listener(textDeltaEvent("ses-1", "msg-free", "Forwarded"))
     listener(sessionIdleEvent("ses-1"))
 
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Forwarded" }),
-    })
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
+      "chat-1",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+    const sendArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
+    const card = JSON.parse(sendArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Forwarded")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("markSessionBusy does not affect other sessions", () => {
@@ -268,9 +284,12 @@ describe("SessionObserver", () => {
     listener(textDeltaEvent("ses-1", "msg-ok", "Not blocked"))
     listener(sessionIdleEvent("ses-1"))
 
-    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith("chat-1", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Not blocked" }),
-    })
+    expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
+      "chat-1",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+    const sendArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
+    const card = JSON.parse(sendArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Not blocked")
   })
 })

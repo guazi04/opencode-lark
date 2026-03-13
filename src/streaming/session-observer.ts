@@ -7,7 +7,7 @@
 import type { EventProcessor } from "./event-processor.js"
 import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { Logger } from "../utils/logger.js"
-import { buildQuestionCard, buildPermissionCard } from "../handler/streaming-integration.js"
+import { buildQuestionCard, buildPermissionCard, buildFinalResponseCard } from "../handler/streaming-integration.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,10 +77,11 @@ export function createSessionObserver(
   function flushBuffers(chatId: string): void {
     for (const [messageId, text] of textBuffers) {
       if (text.trim().length === 0) continue
+      const card = buildFinalResponseCard(text)
       feishuClient
         .sendMessage(chatId, {
-          msg_type: "text",
-          content: JSON.stringify({ text }),
+          msg_type: "interactive",
+          content: JSON.stringify(card),
         })
         .catch((err) => {
           logger.error(`Failed to send TUI message for ${messageId}: ${err}`)

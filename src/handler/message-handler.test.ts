@@ -242,7 +242,7 @@ describe("createMessageHandler", () => {
     await handlerPromise
 
     // Verify fetch was called with parts containing extracted text
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -291,8 +291,13 @@ describe("createMessageHandler", () => {
 
     expect(deps.feishuClient.sendMessage).toHaveBeenCalledWith(
       "chat-1",
-      expect.objectContaining({ msg_type: "text" }),
+      expect.objectContaining({ msg_type: "interactive" }),
     )
+
+    const callArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
+    const card = JSON.parse(callArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toContain("抱歉")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("event-driven flow: collects TextDelta and responds on SessionIdle", async () => {
@@ -494,11 +499,16 @@ describe("createMessageHandler", () => {
     }))
 
     await handlerPromise
-
+    
     expect(deps.feishuClient.replyMessage).toHaveBeenCalledWith(
       "group-msg-1",
-      expect.objectContaining({ msg_type: "text" }),
+      expect.objectContaining({ msg_type: "interactive" }),
     )
+
+    const callArgs = (deps.feishuClient.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(callArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Reply")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
 
@@ -521,7 +531,7 @@ describe("createMessageHandler", () => {
     await handlerPromise
 
     // Verify POST body contains Lark context signature with sender info
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -556,7 +566,7 @@ describe("createMessageHandler", () => {
     await p2
 
     // Second POST should have lightweight tag with sender name
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCalls = fetchCalls.filter(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -602,7 +612,7 @@ describe("createMessageHandler", () => {
 
     await handlerPromise
 
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -799,7 +809,7 @@ describe("createMessageHandler", () => {
     expect(feishuClient.getMessage).toHaveBeenCalledWith("parent-msg-1")
 
     // Verify the POST body contains quoted context
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -834,7 +844,7 @@ describe("createMessageHandler", () => {
     await handlerPromise
 
     // Should still have sent the original message without quoted context
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -896,7 +906,7 @@ describe("createMessageHandler", () => {
     expect(feishuClient.downloadResource).toHaveBeenCalledWith("msg-1", "img_abc123", "image")
 
     // Verify POST to opencode contains the file reference text
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -937,7 +947,7 @@ describe("createMessageHandler", () => {
     expect(feishuClient.downloadResource).toHaveBeenCalledWith("msg-1", "file_xyz789", "file")
 
     // Verify POST to opencode contains the file reference text
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -980,7 +990,7 @@ describe("createMessageHandler", () => {
 
     // Error message should be forwarded to opencode
     expect(deps.sessionManager.getOrCreate).toHaveBeenCalled()
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -1044,7 +1054,7 @@ describe("createMessageHandler", () => {
     await handlerPromise
 
     // Should forward specific size-limit message
-    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const fetchCalls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const postCall = fetchCalls.find(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
@@ -1264,7 +1274,7 @@ describe("createMessageHandler — 404 session self-healing", () => {
     // Verify: getOrCreate was called twice (initial + recovery)
     expect(sessionManager.getOrCreate).toHaveBeenCalledTimes(2)
     // Verify: 2 POSTs to /message (original + retry)
-    const messagePosts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+    const messagePosts = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/message"),
     )
     expect(messagePosts).toHaveLength(2)

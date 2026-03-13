@@ -31,9 +31,33 @@ export type CommandHandler = (
 interface Session {
   id: string
   title?: string
+  time?: { created: number; updated: number }
+  summary?: { additions: number; deletions: number; files: number }
 }
 
 // ── Card builders ──
+
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now()
+  const diffMs = Math.max(0, now - timestamp)
+  const diffMin = Math.floor(diffMs / 60_000)
+
+  if (diffMin < 1) return "刚刚"
+  if (diffMin < 60) return `${diffMin}分钟前`
+
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}小时前`
+
+  const diffDay = Math.floor(diffHr / 24)
+  return `${diffDay}天前`
+}
+
+function truncateTitle(title: string, maxChars = 30): string {
+  const trimmed = title.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  if (maxChars <= 3) return trimmed.slice(0, maxChars)
+  return trimmed.slice(0, maxChars - 3) + "..."
+}
 
 function buildSessionsCard(sessions: Session[], currentSessionId?: string): Record<string, unknown> {
   const recentSessions = sessions.slice(0, 10)
@@ -53,6 +77,17 @@ function buildSessionsCard(sessions: Session[], currentSessionId?: string): Reco
       },
       ...recentSessions.map((s) => {
         const isCurrentSession = s.id === currentSessionId
+        const title = s.title?.trim() ? truncateTitle(s.title) : "未命名会话"
+        const relative = s.time?.updated
+          ? formatRelativeTime(s.time.updated)
+          : "未知时间"
+        const filesSegment =
+          typeof s.summary?.files === "number" ? `${s.summary.files}文件` : null
+
+        const segments = [title, relative, filesSegment].filter(
+          (v): v is string => typeof v === "string" && v.length > 0,
+        )
+        const label = `${isCurrentSession ? "▶ " : ""}${segments.join(" · ")}`
         return {
           tag: "action",
           actions: [
@@ -60,7 +95,7 @@ function buildSessionsCard(sessions: Session[], currentSessionId?: string): Reco
               tag: "button",
               text: {
                 tag: "plain_text",
-                content: `${isCurrentSession ? "▶ " : ""}${s.title ? s.title + " — " : ""}${s.id}`,
+                content: label,
               },
               value: { action: "command_execute", command: `/connect ${s.id}` },
             },
@@ -206,7 +241,8 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
         }
       } else {
         // Not in API response at all — add it manually at top
-        sessions.unshift({ id: currentSessionId, title: "当前会话" })
+        const now = Date.now()
+        sessions.unshift({ id: currentSessionId, title: "当前会话", time: { created: now, updated: now } })
       }
     }
 

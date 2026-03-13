@@ -36,6 +36,7 @@ function makeDeps(overrides: Partial<StreamingBridgeDeps> = {}): StreamingBridge
     feishuClient: createMockFeishuClient(),
     subAgentTracker: createMockSubAgentTracker(),
     logger: createMockLogger(),
+    seenInteractiveIds: new Set<string>(),
     ...overrides,
   }
 }
@@ -91,8 +92,20 @@ describe("createStreamingBridge", () => {
 
     expect(deps.feishuClient.replyMessage).toHaveBeenCalledWith(
       "msg_original",
-      expect.objectContaining({ msg_type: "text" }),
+      expect.objectContaining({ msg_type: "interactive" }),
     )
+
+    const callArgs = (deps.feishuClient.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(callArgs?.[1]?.content as string)
+    expect(card.config?.wide_screen_mode).toBe(true)
+    expect(card).not.toHaveProperty("header")
+    expect(card.elements?.[0]?.tag).toBe("markdown")
+    expect(card.elements?.[0]?.content).toBe("（无回复）")
+    expect(card.elements?.[1]?.tag).toBe("action")
+    expect(card.elements?.[1]?.actions?.[0]?.value).toEqual({
+      action: "command_execute",
+      command: "/help",
+    })
     expect(onComplete).toHaveBeenCalledWith("（无回复）")
   })
 
@@ -618,10 +631,15 @@ describe("createStreamingBridge", () => {
 
     await handlePromise
 
-    expect(mockFeishu.replyMessage).toHaveBeenCalledWith("msg_original", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Hello World" }),
-    })
+    expect(mockFeishu.replyMessage).toHaveBeenCalledWith(
+      "msg_original",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+
+    const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(replyArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello World")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
     expect(onComplete).toHaveBeenCalledWith("Hello World")
   })
 
@@ -743,9 +761,11 @@ describe("createStreamingBridge", () => {
 
     const replyCall = mockFeishu.replyMessage.mock.calls[0]!
     expect(replyCall[0]).toBe("msg_original")
-    const replyContent = JSON.parse((replyCall[1] as { content: string }).content)
-    expect(replyContent.text).toContain("…(内容过长，已截断)")
-    expect(replyContent.text.length).toBeLessThan(110_000)
+    expect((replyCall[1] as any).msg_type).toBe("interactive")
+    const card = JSON.parse((replyCall[1] as { content: string }).content)
+    const content = card.elements?.[0]?.content as string
+    expect(content).toContain("…(内容过长，已截断)")
+    expect(content.length).toBeLessThan(110_000)
   })
 
   it("sends text as reply and calls deleteReaction when reactionId present", async () => {
@@ -802,10 +822,17 @@ describe("createStreamingBridge", () => {
 
     await handlePromise
 
-    // Text should be sent as reply
-    expect(mockFeishu.replyMessage).toHaveBeenCalledWith("msg_original", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Hello World" }),
+    expect(mockFeishu.replyMessage).toHaveBeenCalledWith(
+      "msg_original",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+
+    const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(replyArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello World")
+    expect(card.elements?.[1]?.actions?.[0]?.value).toEqual({
+      action: "command_execute",
+      command: "/help",
     })
     // deleteReaction called with correct args
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
@@ -856,11 +883,14 @@ describe("createStreamingBridge", () => {
 
     await handlePromise
 
-    // Text sent as reply
-    expect(mockFeishu.replyMessage).toHaveBeenCalledWith("msg_original", {
-      msg_type: "text",
-      content: JSON.stringify({ text: "Hello World" }),
-    })
+    expect(mockFeishu.replyMessage).toHaveBeenCalledWith(
+      "msg_original",
+      expect.objectContaining({ msg_type: "interactive" }),
+    )
+    const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
+    const card = JSON.parse(replyArgs?.[1]?.content as string)
+    expect(card.elements?.[0]?.content).toBe("Hello World")
+    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
     // deleteReaction called
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
   })

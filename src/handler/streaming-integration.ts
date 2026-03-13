@@ -79,11 +79,11 @@ export function createStreamingBridge(
         let gotFirstEvent = false
         let settled = false
         let syncResponseBody = ""
-        // Helper: send text reply and clean up reaction
         const sendFinalResponse = async (text: string): Promise<void> => {
+          const card = buildFinalResponseCard(text)
           await feishuClient.replyMessage(messageId, {
-            msg_type: "text",
-            content: JSON.stringify({ text }),
+            msg_type: "interactive",
+            content: JSON.stringify(card),
           })
           if (reactionId) {
             try {
@@ -311,6 +311,28 @@ function parseSyncResponse(rawText: string, logger: Logger): string {
   } catch (e) {
     logger.warn(`Failed to parse sync response: ${e}`)
     return rawText.trim() || "（无回复）"
+  }
+}
+
+export function buildFinalResponseCard(text: string): Record<string, unknown> {
+  return {
+    config: { wide_screen_mode: true },
+    elements: [
+      {
+        tag: "markdown",
+        content: text,
+      },
+      {
+        tag: "action",
+        actions: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "⚡菜单" },
+            value: { action: "command_execute", command: "/help" },
+          },
+        ],
+      },
+    ],
   }
 }
 
