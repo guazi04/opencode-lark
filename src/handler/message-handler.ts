@@ -25,6 +25,7 @@ import { writeFile, mkdir, access } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { randomBytes } from "node:crypto"
+import { buildResponseCard } from "../feishu/card-builder.js"
 
 // ── Dependency injection interface ──
 
@@ -162,13 +163,19 @@ async function handleFileOrImageMessage(
 // ── Helper: extract text from Feishu post rich content ──
 
 function extractTextFromPost(content: string): string {
+  const { text } = processPostContent(content)
+  return text
+}
+
+/** Parse post rich content, returning both extracted text and any image_keys. */
+function processPostContent(content: string): { text: string; imageKeys: string[] } {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>
     
     // Determine the post data structure:
     // Format 1 (flat, from WebSocket): { title?: string, content: [[...]] }
     // Format 2 (locale-wrapped, from REST API): { zh_cn: { title?: string, content: [[...]] } }
-    let postData: { title?: string; content?: Array<Array<{ tag: string; text?: string }>> }
+    let postData: { title?: string; content?: Array<Array<{ tag: string; text?: string; image_key?: string }>> }
     
     if (Array.isArray(parsed.content)) {
       // Flat format — content is directly on the object
@@ -176,13 +183,14 @@ function extractTextFromPost(content: string): string {
     } else {
       // Locale-wrapped format — pick first locale value
       const locale = Object.values(parsed)[0]
-      if (!locale || typeof locale !== "object") return ""
+      if (!locale || typeof locale !== "object") return { text: "", imageKeys: [] }
       postData = locale as typeof postData
     }
     
-    if (!postData?.content) return ""
+    if (!postData?.content) return { text: "", imageKeys: [] }
     
     const lines: string[] = []
+    const imageKeys: string[] = []
     if (postData.title) lines.push(postData.title)
     
     for (const paragraph of postData.content) {
@@ -191,11 +199,18 @@ function extractTextFromPost(content: string): string {
         .map((el) => el.text!)
         .join("")
       if (lineText) lines.push(lineText)
+
+      // Collect image keys from img elements
+      for (const el of paragraph) {
+        if (el.tag === "img" && el.image_key) {
+          imageKeys.push(el.image_key)
+        }
+      }
     }
     
-    return lines.join("\n")
+    return { text: lines.join("\n"), imageKeys }
   } catch {
-    return ""
+    return { text: "", imageKeys: [] }
   }
 }
 
@@ -325,7 +340,33 @@ export function createMessageHandler(
         }
       }
     } else if (messageType === "post") {
-      userText = extractTextFromPost(event.message.content)
+      const { text: postText, imageKeys } = processPostContent(event.message.content)
+      const postParts: string[] = []
+      if (postText) postParts.push(postText)
+
+      // Download images embedded in the rich text post
+      for (const imageKey of imageKeys) {
+        try {
+          const downloadDir = await resolveDownloadDir()
+          const { data } = await feishuClient.downloadResource(event.message_id, imageKey, "image")
+          const safeName = sanitizeFilename("image.png")
+          const filepath = join(downloadDir, safeName)
+
+          // Guard against path traversal
+          if (!resolve(filepath).startsWith(resolve(downloadDir))) {
+            logger.warn(`Path traversal detected for post image, skipping: ${imageKey}`)
+            continue
+          }
+
+          await writeFile(filepath, data, { mode: 0o600 })
+          logger.info(`Saved post image to ${filepath}`)
+          postParts.push(`User sent an image in rich text message.\nSaved to: ${filepath}\nPlease look at this image.`)
+        } catch (err) {
+          logger.warn(`Failed to download post image ${imageKey}: ${err}`)
+        }
+      }
+
+      userText = postParts.join("\n")
     } else {
       try {
         const parsed = JSON.parse(event.message.content) as { text?: string }
@@ -354,80 +395,84 @@ export function createMessageHandler(
     }
 
     // ── 4c. Debounce path (when enabled) ──
-    // Strategy: image/file → buffer + timer (wait for follow-up text).
-    //          text/post  → if buffer has pending media, add + immediate flush;
-    //                       if buffer is empty, skip debounce entirely.
+    // Strategy: ALL message types are buffered on first arrival.
+    //   First message (any type)  → buffer + start init (thinking/reaction) + debounce timer.
+    //   Subsequent messages        → add to buffer + reset timer (or flush on init).
+    //   text/post after pending    → add to buffer + immediate flush ("done" signal).
     if (debouncer) {
-      const debounceKey = `${event.sender.sender_id.open_id}:${feishuKey}`
+      // Use chat-level grouping (NOT message-level) so consecutive messages share a key
+      const debounceBase = event.chat_type === "p2p"
+        ? event.chat_id
+        : event.root_id
+          ? `${event.chat_id}:${event.root_id}`  // thread-level
+          : event.chat_id                          // chat-level
+      const debounceKey = `${event.sender.sender_id.open_id}:${debounceBase}`
       const isMedia = messageType === "image" || messageType === "file"
+      const isText = messageType === "text" || messageType === "post"
 
-      if (isMedia) {
-        // Media message: buffer it and wait for follow-up text
-        const isFirst = debouncer.add(debounceKey, {
-          userText,
-          event,
-          timestamp: Date.now(),
-        }, { startTimer: false })
-
-        if (isFirst) {
-          // Mark as initializing BEFORE any async work. While initializing,
-          // subsequent add() calls will buffer but NOT start/reset the timer.
-          // This prevents the race where media2 arrives during init and starts
-          // a timer that fires before context (reaction, thinking) is set.
-          debouncer.setInitializing(debounceKey)
-
-          try {
-            // Send thinking indicator for first message in batch
-            const thinkMsgId = deps.streamingBridge
-              ? null
-              : await progressTracker.sendThinking(event.chat_id)
-            let firstReactionId: string | null = null
-            if (deps.streamingBridge) {
-              try {
-                const reactionResult = await feishuClient.addReaction(
-                  event.message_id, "Typing",
-                )
-                firstReactionId = (reactionResult?.data?.reaction_id as string) ?? null
-              } catch (err) {
-                logger.warn(`addReaction failed: ${err}`)
-              }
-            }
-            debouncer.updateContext(debounceKey, {
-              thinkingMessageId: thinkMsgId,
-              reactionId: firstReactionId,
-              reactionMessageId: firstReactionId ? event.message_id : null,
-            })
-          } finally {
-            // Always resolve init, even if sendThinking/addReaction threw.
-            // This ensures the buffer never gets stuck in initializing state.
-            debouncer.resolveInit(debounceKey)
-          }
-        }
-
-        return // Wait for timer or follow-up text
-      }
-
-      // Text/post message: check if there's pending media in buffer
       if (debouncer.hasPending(debounceKey)) {
-        // Buffer the text message
+        // There's already a pending buffer — add to it
         debouncer.add(debounceKey, {
           userText,
           event,
           timestamp: Date.now(),
         })
 
-        if (debouncer.isInitializing(debounceKey)) {
-          // Init still in progress — context (reaction/thinking) not set yet.
-          // Mark for immediate flush when init completes, preserving context.
-          debouncer.markFlushOnInit(debounceKey)
-        } else {
-          // Init done, context ready — safe to flush now
-          debouncer.flush(debounceKey)
+        if (isText) {
+          // Text/post is the "done" signal — flush immediately (or on init)
+          if (debouncer.isInitializing(debounceKey)) {
+            debouncer.markFlushOnInit(debounceKey)
+          } else {
+            debouncer.flush(debounceKey)
+          }
         }
+        // Media just adds to buffer — timer will fire eventually
         return
       }
 
-      // No pending media — fall through to non-debounced path below
+      // No pending buffer — this is the first message for this key
+      const isFirst = debouncer.add(debounceKey, {
+        userText,
+        event,
+        timestamp: Date.now(),
+      }, { startTimer: false })
+
+      if (isFirst) {
+        // Mark as initializing BEFORE any async work. While initializing,
+        // subsequent add() calls will buffer but NOT start/reset the timer.
+        // This prevents the race where msg2 arrives during init and starts
+        // a timer that fires before context (reaction, thinking) is set.
+        debouncer.setInitializing(debounceKey)
+
+        try {
+          // Send thinking indicator for first message in batch
+          const thinkMsgId = deps.streamingBridge
+            ? null
+            : await progressTracker.sendThinking(event.chat_id)
+          let firstReactionId: string | null = null
+          if (deps.streamingBridge) {
+            try {
+              const reactionResult = await feishuClient.addReaction(
+                event.message_id, "Typing",
+              )
+              firstReactionId = (reactionResult?.data?.reaction_id as string) ?? null
+            } catch (err) {
+              logger.warn(`addReaction failed: ${err}`)
+            }
+          }
+          debouncer.updateContext(debounceKey, {
+            thinkingMessageId: thinkMsgId,
+            reactionId: firstReactionId,
+            reactionMessageId: firstReactionId ? event.message_id : null,
+          })
+        } finally {
+          // Always resolve init, even if sendThinking/addReaction threw.
+          // This ensures the buffer never gets stuck in initializing state.
+          debouncer.resolveInit(debounceKey)
+        }
+      }
+
+      return // Wait for timer or follow-up message
     }
 
     // ── 5. Send thinking indicator ──
@@ -488,7 +533,8 @@ export function createMessageHandler(
         const attachDir = getAttachmentsDir()
         parts[0] = {
           type: "text",
-          text: parts[0].text + `\n[Lark] Save files → ${attachDir} (auto-sent to user)`,
+          text: parts[0].text + `\n[Lark] chat_id=${event.chat_id} chat_type=${event.chat_type} | Save files → ${attachDir} (auto-sent to user)` +
+            `\nWhen using lark-mcp_im_v1_message_create, ALWAYS use receive_id="${event.chat_id}" with receive_id_type="chat_id" to reply in the same conversation.`,
         }
       } else {
         parts[0] = {
@@ -1082,22 +1128,14 @@ export function createMessageHandler(
     if (thinkingMessageId) {
       await progressTracker.updateWithResponse(thinkingMessageId, responseText)
     } else if (event.chat_type === "p2p") {
-      const truncated =
-        responseText.length > 4000
-          ? responseText.slice(0, 4000) + "\n\n...(truncated)"
-          : responseText
       await feishuClient.sendMessage(event.chat_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: truncated }),
+        msg_type: "interactive",
+        content: JSON.stringify(buildResponseCard(responseText)),
       })
     } else {
-      const truncated =
-        responseText.length > 4000
-          ? responseText.slice(0, 4000) + "\n\n...(truncated)"
-          : responseText
       await feishuClient.replyMessage(event.message_id, {
-        msg_type: "text",
-        content: JSON.stringify({ text: truncated }),
+        msg_type: "interactive",
+        content: JSON.stringify(buildResponseCard(responseText)),
       })
     }
   }
