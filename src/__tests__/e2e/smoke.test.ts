@@ -218,7 +218,6 @@ describe("E2E Smoke Tests", () => {
     const replyArgs = (feishuClient.replyMessage as any).mock.calls[0]
     const card = JSON.parse(replyArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello World!")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
 
     // With lazy card creation, card was never created (no tool events), so no close needed
 
@@ -712,7 +711,6 @@ describe("session sharing", () => {
     const sendArgs = (feishuClient.sendMessage as any).mock.calls[0]
     const card = JSON.parse(sendArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello from TUI")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   // ─────────────────────────────────────────

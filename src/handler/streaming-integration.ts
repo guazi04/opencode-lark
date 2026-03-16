@@ -322,16 +322,6 @@ export function buildFinalResponseCard(text: string): Record<string, unknown> {
         tag: "markdown",
         content: text,
       },
-      {
-        tag: "action",
-        actions: [
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: "⚡菜单" },
-            value: { action: "command_execute", command: "/help" },
-          },
-        ],
-      },
     ],
   }
 }

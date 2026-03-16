@@ -107,7 +107,6 @@ describe("SessionObserver", () => {
     const callArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
     const card = JSON.parse(callArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello from TUI")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("ignores events for owned messageIDs (markOwned)", () => {
@@ -270,7 +269,6 @@ describe("SessionObserver", () => {
     const sendArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
     const card = JSON.parse(sendArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Forwarded")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("markSessionBusy does not affect other sessions", () => {

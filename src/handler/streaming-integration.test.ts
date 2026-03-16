@@ -101,11 +101,6 @@ describe("createStreamingBridge", () => {
     expect(card).not.toHaveProperty("header")
     expect(card.elements?.[0]?.tag).toBe("markdown")
     expect(card.elements?.[0]?.content).toBe("（无回复）")
-    expect(card.elements?.[1]?.tag).toBe("action")
-    expect(card.elements?.[1]?.actions?.[0]?.value).toEqual({
-      action: "command_execute",
-      command: "/help",
-    })
     expect(onComplete).toHaveBeenCalledWith("（无回复）")
   })
 
@@ -639,7 +634,6 @@ describe("createStreamingBridge", () => {
     const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
     const card = JSON.parse(replyArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello World")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
     expect(onComplete).toHaveBeenCalledWith("Hello World")
   })
 
@@ -830,10 +824,6 @@ describe("createStreamingBridge", () => {
     const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
     const card = JSON.parse(replyArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello World")
-    expect(card.elements?.[1]?.actions?.[0]?.value).toEqual({
-      action: "command_execute",
-      command: "/help",
-    })
     // deleteReaction called with correct args
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
   })
@@ -890,7 +880,6 @@ describe("createStreamingBridge", () => {
     const replyArgs = (mockFeishu.replyMessage as any).mock.calls[0]
     const card = JSON.parse(replyArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Hello World")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
     // deleteReaction called
     expect(mockFeishu.deleteReaction).toHaveBeenCalledWith("msg_original", "reaction_123")
   })

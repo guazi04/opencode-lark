@@ -297,7 +297,6 @@ describe("createMessageHandler", () => {
     const callArgs = (deps.feishuClient.sendMessage as any).mock.calls[0]
     const card = JSON.parse(callArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toContain("抱歉")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
   it("event-driven flow: collects TextDelta and responds on SessionIdle", async () => {
@@ -508,7 +507,6 @@ describe("createMessageHandler", () => {
     const callArgs = (deps.feishuClient.replyMessage as any).mock.calls[0]
     const card = JSON.parse(callArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Reply")
-    expect(card.elements?.[1]?.actions?.[0]?.text?.content).toBe("⚡菜单")
   })
 
 
