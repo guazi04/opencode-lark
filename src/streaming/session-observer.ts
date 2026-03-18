@@ -8,6 +8,7 @@ import type { EventProcessor } from "./event-processor.js"
 import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { Logger } from "../utils/logger.js"
 import { buildQuestionCard, buildPermissionCard, buildFinalResponseCard } from "../handler/streaming-integration.js"
+import type { ExpiringSet } from "../utils/expiring-set.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,7 +20,7 @@ export interface SessionObserverDeps {
   addListener: (sessionId: string, fn: (event: unknown) => void) => void
   removeListener: (sessionId: string, fn: (event: unknown) => void) => void
   logger: Logger
-  seenInteractiveIds: Set<string>
+  seenInteractiveIds: ExpiringSet<string>
 }
 
 export interface SessionObserver {
@@ -66,8 +67,19 @@ export function createSessionObserver(
   const knownMessageIds = new Set<string>()
   // Sessions with an active streaming bridge — skip TextDelta/SessionIdle
   const busySessions = new Set<string>()
-  // Per-messageId text accumulation
-  const textBuffers = new Map<string, string>()
+  // Per-messageId text accumulation with TTL tracking
+  const textBuffers = new Map<string, { text: string; lastUpdated: number }>()
+  // Periodic cleanup of stale text buffers (every 5 minutes, evict buffers older than 30 minutes)
+  const BUFFER_TTL_MS = 30 * 60 * 1000
+  const bufferCleanupTimer = setInterval(() => {
+    const now = Date.now()
+    for (const [messageId, entry] of textBuffers) {
+      if (now - entry.lastUpdated > BUFFER_TTL_MS) {
+        textBuffers.delete(messageId)
+        logger.info(`Evicted stale text buffer for messageId=${messageId}`)
+      }
+    }
+  }, 5 * 60 * 1000)
   // Active observation state per session
   const observedSessions = new Map<
     string,
@@ -75,9 +87,9 @@ export function createSessionObserver(
   >()
 
   function flushBuffers(chatId: string): void {
-    for (const [messageId, text] of textBuffers) {
-      if (text.trim().length === 0) continue
-      const card = buildFinalResponseCard(text)
+    for (const [messageId, entry] of textBuffers) {
+      if (entry.text.trim().length === 0) continue
+      const card = buildFinalResponseCard(entry.text)
       feishuClient
         .sendMessage(chatId, {
           msg_type: "interactive",
@@ -108,8 +120,9 @@ export function createSessionObserver(
         switch (action.type) {
           case "TextDelta": {
             if (!messageId) break
-            const current = textBuffers.get(messageId) ?? ""
-            textBuffers.set(messageId, current + action.text)
+            const current = textBuffers.get(messageId)
+            const text = (current?.text ?? "") + action.text
+            textBuffers.set(messageId, { text, lastUpdated: Date.now() })
             break
           }
           case "SessionIdle": {
@@ -178,6 +191,7 @@ export function createSessionObserver(
     },
 
     stop(): void {
+      clearInterval(bufferCleanupTimer)
       for (const [sessionId, { listener }] of observedSessions) {
         removeListener(sessionId, listener)
       }

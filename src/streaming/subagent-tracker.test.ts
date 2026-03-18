@@ -6,12 +6,13 @@ import {
 } from "./subagent-tracker.js"
 import type { SubtaskDiscovered } from "./event-processor.js"
 
-const runAllTimersCompat = async () => {
-  if (typeof vi.runAllTimersAsync === "function") {
-    await vi.runAllTimersAsync()
+/** Advance timers by a bounded amount and flush microtasks. */
+const advanceAndFlush = async (ms = 20_000) => {
+  if (typeof vi.advanceTimersByTimeAsync === "function") {
+    await vi.advanceTimersByTimeAsync(ms)
   } else {
-    vi.runAllTimers()
-    await new Promise(r => setImmediate(r))
+    vi.advanceTimersByTime(ms)
+    await Promise.resolve()
   }
 }
 
@@ -80,7 +81,7 @@ describe("SubAgentTracker", () => {
     expect(agent.parentSessionId).toBe("ses-parent")
 
     // Let the background poll resolve
-    await runAllTimersCompat()
+    await advanceAndFlush()
 
     expect(agent.status).toBe("active")
     expect(agent.childSessionId).toBe("ses-child-1")
@@ -97,7 +98,7 @@ describe("SubAgentTracker", () => {
     const agent = await tracker.onSubtaskDiscovered(makeAction())
 
     // Let all timers and promises resolve (2 polls with backoff)
-    for (let i = 0; i < 5; i++) await runAllTimersCompat()
+    for (let i = 0; i < 5; i++) await advanceAndFlush()
 
     expect(agent.status).toBe("active")
     expect(agent.childSessionId).toBe("ses-child-2")
@@ -112,7 +113,7 @@ describe("SubAgentTracker", () => {
     const agent = await tracker.onSubtaskDiscovered(makeAction())
 
     // Advance through all 5 retries with backoff timers
-    for (let i = 0; i < 10; i++) await runAllTimersCompat()
+    for (let i = 0; i < 10; i++) await advanceAndFlush()
 
     expect(agent.status).toBe("failed")
     expect(agent.childSessionId).toBeUndefined()
@@ -180,7 +181,7 @@ describe("SubAgentTracker", () => {
       makeAction({ prompt: "Task 2" }),
     )
 
-    await runAllTimersCompat()
+    await advanceAndFlush()
 
     const tracked = tracker.getTrackedSubAgents()
     expect(tracked).toHaveLength(2)
@@ -249,5 +250,81 @@ describe("SubAgentTracker", () => {
     await expect(
       tracker.onSubtaskDiscovered(makeAction(), 2),
     ).rejects.toThrow("Max sub-agent depth is 1")
+  })
+
+  // 12. Failed sub-agents have resolvedAt set
+  it("sets resolvedAt when status becomes failed", async () => {
+    globalThis.fetch = mockFetchResponse([]) // always empty → will fail
+
+    const tracker = new SubAgentTracker({ serverUrl: SERVER_URL })
+    const agent = await tracker.onSubtaskDiscovered(makeAction())
+
+    // Advance through all retries
+    for (let i = 0; i < 10; i++) await advanceAndFlush()
+
+    expect(agent.status).toBe("failed")
+    expect(agent.resolvedAt).toBeDefined()
+    expect(typeof agent.resolvedAt).toBe("number")
+
+    tracker.close()
+  })
+
+  // 13. getTrackedSubAgents filters out expired completed agents
+  it("getTrackedSubAgents excludes expired completed sub-agents", async () => {
+    globalThis.fetch = mockFetchResponse([]) // all will fail
+
+    const tracker = new SubAgentTracker({ serverUrl: SERVER_URL })
+    await tracker.onSubtaskDiscovered(makeAction({ prompt: "Old task" }))
+
+    // Resolve all polls so agent becomes failed with resolvedAt
+    for (let i = 0; i < 10; i++) await advanceAndFlush()
+
+    // Verify it's tracked initially
+    expect(tracker.getTrackedSubAgents()).toHaveLength(1)
+
+    // Advance past 30-minute TTL (resolved agents use 30min)
+    vi.advanceTimersByTime(30 * 60 * 1000 + 1)
+
+    // Should be filtered out
+    expect(tracker.getTrackedSubAgents()).toHaveLength(0)
+
+    tracker.close()
+  })
+
+  // 14. Periodic cleanup evicts expired entries from tracked array
+  it("periodic cleanup evicts expired completed sub-agents", async () => {
+    globalThis.fetch = mockFetchResponse([]) // all will fail
+
+    const tracker = new SubAgentTracker({ serverUrl: SERVER_URL })
+    await tracker.onSubtaskDiscovered(makeAction({ prompt: "Expired" }))
+
+    // Resolve polls
+    for (let i = 0; i < 10; i++) await advanceAndFlush()
+
+    // Advance past resolved TTL + cleanup interval (30min + 10min)
+    vi.advanceTimersByTime(30 * 60 * 1000 + 10 * 60 * 1000 + 1)
+
+    // Add a fresh sub-agent to verify it's NOT evicted
+    globalThis.fetch = mockFetchResponse([
+      { id: "ses-fresh", parentID: "ses-parent" },
+    ])
+    await tracker.onSubtaskDiscovered(makeAction({ prompt: "Fresh" }))
+    await advanceAndFlush()
+
+    // Only the fresh one should remain
+    const tracked = tracker.getTrackedSubAgents()
+    expect(tracked).toHaveLength(1)
+    expect(tracked[0]!.prompt).toBe("Fresh")
+
+    tracker.close()
+  })
+
+  // 15. close() stops the cleanup interval
+  it("close() stops the cleanup interval timer", () => {
+    const tracker = new SubAgentTracker({ serverUrl: SERVER_URL })
+    // Should not throw
+    tracker.close()
+    // Calling close again should also not throw
+    tracker.close()
   })
 })

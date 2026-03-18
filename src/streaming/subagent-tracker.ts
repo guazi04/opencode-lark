@@ -4,6 +4,9 @@
 // ═══════════════════════════════════════════
 
 import type { SubtaskDiscovered } from "./event-processor.js"
+import { createLogger } from "../utils/logger.js"
+
+const logger = createLogger("subagent-tracker")
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +19,8 @@ export interface TrackedSubAgent {
   description: string
   agent: string
   status: "discovering" | "active" | "completed" | "failed"
+  resolvedAt?: number
+  createdAt: number
 }
 
 export interface MessageSummary {
@@ -35,7 +40,9 @@ export interface SubAgentTrackerOptions {
 
 const MAX_RETRIES = 5
 const BACKOFF_BASE_MS = 500
-
+const COMPLETED_TTL_MS = 30 * 60 * 1000 // 30 minutes for resolved (completed/failed) agents
+const ACTIVE_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours for active/discovering agents
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000 // 10 minutes
 // ---------------------------------------------------------------------------
 // SubAgentTracker
 // ---------------------------------------------------------------------------
@@ -43,11 +50,14 @@ const BACKOFF_BASE_MS = 500
 export class SubAgentTracker {
   private readonly serverUrl: string
   private readonly maxDepth: number
-  private readonly tracked: TrackedSubAgent[] = []
+  private tracked: TrackedSubAgent[] = []
+
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(options: SubAgentTrackerOptions) {
     this.serverUrl = options.serverUrl
     this.maxDepth = Math.min(options.maxDepth ?? 1, 1)
+    this.cleanupTimer = setInterval(() => this.evictCompleted(), CLEANUP_INTERVAL_MS)
   }
 
   /**
@@ -66,10 +76,12 @@ export class SubAgentTracker {
 
     const agent: TrackedSubAgent = {
       parentSessionId: action.sessionId,
+      childSessionId: undefined,
       prompt: action.prompt,
       description: action.description,
       agent: action.agent,
       status: "discovering",
+      createdAt: Date.now(),
     }
 
     this.tracked.push(agent)
@@ -82,10 +94,12 @@ export class SubAgentTracker {
           agent.status = "active"
         } else {
           agent.status = "failed"
+          agent.resolvedAt = Date.now()
         }
       })
       .catch(() => {
         agent.status = "failed"
+        agent.resolvedAt = Date.now()
       })
 
     return agent
@@ -167,12 +181,41 @@ export class SubAgentTracker {
    * Return all tracked sub-agents with current status.
    */
   getTrackedSubAgents(): TrackedSubAgent[] {
-    return [...this.tracked]
+    const now = Date.now()
+    return this.tracked.filter((a) => {
+      if (a.resolvedAt) {
+        // Resolved agents (completed/failed): use short TTL
+        return now - a.resolvedAt <= COMPLETED_TTL_MS
+      }
+      // Active/discovering agents: use longer TTL
+      return now - a.createdAt <= ACTIVE_TTL_MS
+    })
   }
 
-  // -------------------------------------------------------------------------
-  // Private helpers
-  // -------------------------------------------------------------------------
+  /** Stop the periodic cleanup timer. */
+  close(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer)
+      this.cleanupTimer = null
+    }
+  }
+
+  private evictCompleted(): void {
+    const now = Date.now()
+    const before = this.tracked.length
+    this.tracked = this.tracked.filter((agent) => {
+      // Keep if resolved but within TTL
+      if (agent.resolvedAt) {
+        return now - agent.resolvedAt <= COMPLETED_TTL_MS
+      }
+      // Keep if active/discovering within active TTL
+      return now - agent.createdAt <= ACTIVE_TTL_MS
+    })
+    const evicted = before - this.tracked.length
+    if (evicted > 0) {
+      logger.debug(`Evicted ${evicted} completed sub-agent(s) from tracker`)
+    }
+  }
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))

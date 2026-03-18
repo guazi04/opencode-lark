@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { EventProcessor } from "./event-processor.js"
 import {
   createSessionObserver,
@@ -11,6 +11,14 @@ import {
 
 function makeDeps() {
   const capturedListeners = new Map<string, (event: unknown) => void>()
+
+  const mockSeenInteractiveIds = {
+    has: vi.fn().mockReturnValue(false),
+    add: vi.fn(),
+    delete: vi.fn().mockReturnValue(true),
+    close: vi.fn(),
+    get size() { return 0 },
+  }
 
   const deps: SessionObserverDeps & {
     capturedListeners: typeof capturedListeners
@@ -31,7 +39,7 @@ function makeDeps() {
       error: vi.fn(),
       debug: vi.fn(),
     },
-    seenInteractiveIds: new Set<string>(),
+    seenInteractiveIds: mockSeenInteractiveIds as any,
     capturedListeners,
   }
   return deps
@@ -83,6 +91,14 @@ function toolStateEvent(sessionId: string, messageId: string) {
 // ---------------------------------------------------------------------------
 
 describe("SessionObserver", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("accumulates TUI-initiated TextDelta and sends on SessionIdle", () => {
     const deps = makeDeps()
     const observer = createSessionObserver(deps)
@@ -290,4 +306,31 @@ describe("SessionObserver", () => {
     const card = JSON.parse(sendArgs?.[1]?.content as string)
     expect(card.elements?.[0]?.content).toBe("Not blocked")
   })
+
+  it("evicts stale text buffers after 30 minutes via cleanup interval", () => {
+    const deps = makeDeps()
+    const observer = createSessionObserver(deps)
+    observer.observe("ses-1", "chat-1")
+
+    const listener = deps.capturedListeners.get("ses-1")!
+
+    // Buffer some text
+    listener(textDeltaEvent("ses-1", "msg-stale", "Stale text"))
+
+    // Advance past 30-minute TTL + 5-minute cleanup interval
+    vi.advanceTimersByTime(35 * 60 * 1000)
+
+    // The stale buffer should have been evicted
+    // SessionIdle should NOT send the stale text
+    listener(sessionIdleEvent("ses-1"))
+
+    expect(deps.feishuClient.sendMessage).not.toHaveBeenCalled()
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("Evicted stale text buffer for messageId=msg-stale"),
+    )
+
+    observer.stop()
+  })
 })
+
+

@@ -9,6 +9,7 @@ import type { EventListenerMap } from "../utils/event-listeners.js"
 import { addListener, removeListener } from "../utils/event-listeners.js"
 import { StreamingCardSession } from "../streaming/streaming-card.js"
 import type { OutboundMediaHandler } from "./outbound-media.js"
+import type { ExpiringSet } from "../utils/expiring-set.js"
 
 // ── Types ──
 
@@ -17,7 +18,7 @@ export interface StreamingBridgeDeps {
   feishuClient: FeishuApiClient
   subAgentTracker: SubAgentTracker
   logger: Logger
-  seenInteractiveIds: Set<string>
+  seenInteractiveIds: ExpiringSet<string>
   outboundMedia?: OutboundMediaHandler
 }
 

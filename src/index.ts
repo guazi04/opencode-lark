@@ -34,6 +34,7 @@ import { createCommandHandler } from "./handler/command-handler.js"
 import { createOutboundMediaHandler } from "./handler/outbound-media.js"
 import { createSessionObserver } from "./streaming/session-observer.js"
 import { addListener, removeListener } from "./utils/event-listeners.js"
+import { ExpiringSet } from "./utils/expiring-set.js"
 import { createSubAgentCardHandler } from "./streaming/subagent-card.js"
 import { createInteractiveHandler } from "./handler/interactive-handler.js"
 import { createInteractivePoller } from "./handler/interactive-poller.js"
@@ -170,7 +171,7 @@ async function main(): Promise<void> {
 
   const ownedSessions = new Set<string>()
   const eventListeners: EventListenerMap = new Map()
-  const seenInteractiveIds = new Set<string>()
+  const seenInteractiveIds = new ExpiringSet<string>(30 * 60 * 1000, 2 * 60 * 1000)
 
   const eventProcessor = new EventProcessor({ ownedSessions, logger })
 
@@ -396,6 +397,8 @@ async function main(): Promise<void> {
       interactivePoller.stop()
       observer.stop()
       disposeDebouncer()
+      subAgentTracker.close()
+      seenInteractiveIds.close()
       dedup.close()
       db.close()
       process.exit(0)

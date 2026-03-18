@@ -8,6 +8,7 @@ import type { FeishuApiClient } from "../feishu/api-client.js"
 import type { Logger } from "../utils/logger.js"
 import type { QuestionAsked, PermissionRequested } from "../streaming/event-processor.js"
 import { buildQuestionCard, buildPermissionCard } from "./streaming-integration.js"
+import type { ExpiringSet } from "../utils/expiring-set.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,7 +20,7 @@ export interface InteractivePollerDeps {
   logger: Logger
   getChatForSession: (sessionId: string) => string | undefined
   /** Shared dedup set — IDs added here are also checked by SSE handlers */
-  seenInteractiveIds: Set<string>
+  seenInteractiveIds: ExpiringSet<string>
 }
 
 export interface InteractivePoller {
