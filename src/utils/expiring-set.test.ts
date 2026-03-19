@@ -51,23 +51,23 @@ describe("ExpiringSet", () => {
     set.close()
   })
 
-  it("size returns count of non-expired entries", () => {
+  it("countAlive() returns count of non-expired entries", () => {
     const set = new ExpiringSet<string>(1_000, 60_000)
     set.add("a")
     set.add("b")
     set.add("c")
 
-    expect(set.size).toBe(3)
+    expect(set.countAlive()).toBe(3)
 
     // Advance past TTL
     vi.advanceTimersByTime(1_001)
 
-    expect(set.size).toBe(0)
+    expect(set.countAlive()).toBe(0)
 
     set.close()
   })
 
-  it("size excludes expired items even when mixed with fresh ones", () => {
+  it("countAlive() excludes expired items even when mixed with fresh ones", () => {
     const set = new ExpiringSet<string>(2_000, 60_000)
     set.add("old")
 
@@ -75,11 +75,11 @@ describe("ExpiringSet", () => {
     set.add("new")
 
     // "old" has 500ms left, "new" is fresh
-    expect(set.size).toBe(2)
+    expect(set.countAlive()).toBe(2)
 
     vi.advanceTimersByTime(600)
     // "old" is now expired (2100ms), "new" has 1400ms left
-    expect(set.size).toBe(1)
+    expect(set.countAlive()).toBe(1)
 
     set.close()
   })
@@ -93,9 +93,8 @@ describe("ExpiringSet", () => {
     vi.advanceTimersByTime(1_500)
 
     // After cleanup runs, the internal map should be cleaned
-    // Verify by adding a new item and checking size
     set.add("c")
-    expect(set.size).toBe(1) // only "c" remains
+    expect(set.countAlive()).toBe(1) // only "c" remains
 
     set.close()
   })
@@ -139,7 +138,7 @@ describe("ExpiringSet", () => {
 
     expect(set.has(42)).toBe(true)
     expect(set.has(99)).toBe(false)
-    expect(set.size).toBe(2)
+    expect(set.countAlive()).toBe(2)
 
     set.close()
   })

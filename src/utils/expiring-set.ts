@@ -40,7 +40,7 @@ export class ExpiringSet<T> {
   }
 
   /** O(n) — iterates all entries to exclude expired. Avoid in hot paths. */
-  get size(): number {
+  countAlive(): number {
     const now = Date.now()
     let count = 0
     for (const timestamp of this.data.values()) {

@@ -182,14 +182,7 @@ export class SubAgentTracker {
    */
   getTrackedSubAgents(): TrackedSubAgent[] {
     const now = Date.now()
-    return this.tracked.filter((a) => {
-      if (a.resolvedAt) {
-        // Resolved agents (completed/failed): use short TTL
-        return now - a.resolvedAt <= COMPLETED_TTL_MS
-      }
-      // Active/discovering agents: use longer TTL
-      return now - a.createdAt <= ACTIVE_TTL_MS
-    })
+    return this.tracked.filter((agent) => this.isAlive(agent, now))
   }
 
   /** Stop the periodic cleanup timer. */
@@ -203,18 +196,20 @@ export class SubAgentTracker {
   private evictCompleted(): void {
     const now = Date.now()
     const before = this.tracked.length
-    this.tracked = this.tracked.filter((agent) => {
-      // Keep if resolved but within TTL
-      if (agent.resolvedAt) {
-        return now - agent.resolvedAt <= COMPLETED_TTL_MS
-      }
-      // Keep if active/discovering within active TTL
-      return now - agent.createdAt <= ACTIVE_TTL_MS
-    })
+    this.tracked = this.tracked.filter((agent) => this.isAlive(agent, now))
     const evicted = before - this.tracked.length
     if (evicted > 0) {
       logger.debug(`Evicted ${evicted} completed sub-agent(s) from tracker`)
     }
+  }
+
+  private isAlive(agent: TrackedSubAgent, now: number): boolean {
+    if (agent.resolvedAt) {
+      // Resolved agents (completed/failed): use short TTL
+      return now - agent.resolvedAt <= COMPLETED_TTL_MS
+    }
+    // Active/discovering agents: use longer TTL
+    return now - agent.createdAt <= ACTIVE_TTL_MS
   }
 
   private sleep(ms: number): Promise<void> {
