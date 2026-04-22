@@ -5,6 +5,67 @@ import {
   type SessionObserverDeps,
 } from "./session-observer.js"
 
+function createMockInteractiveCardRegistry() {
+  const cards = new Map<string, {
+    requestId: string
+    kind: "question" | "permission"
+    chatId: string
+    messageId: string
+    trackedAt: number
+    state: "dispatching" | "sent" | "resolving_feishu"
+  }>()
+
+  return {
+    beginDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      if (cards.has(key)) return false
+      cards.set(key, {
+        requestId,
+        kind,
+        chatId: "",
+        messageId: "",
+        trackedAt: Date.now(),
+        state: "dispatching",
+      })
+      return true
+    }),
+    failDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "dispatching") return false
+      cards.delete(key)
+      return true
+    }),
+    track: vi.fn((card: {
+      requestId: string
+      kind: "question" | "permission"
+      chatId: string
+      messageId: string
+    }) => {
+      cards.set(`${card.kind}:${card.requestId}`, {
+        ...card,
+        trackedAt: Date.now(),
+        state: "sent",
+      })
+    }),
+    markFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "sent") return
+      cards.set(key, { ...current, state: "resolving_feishu" })
+    }),
+    clearFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "resolving_feishu") return
+      cards.set(key, { ...current, state: "sent" })
+    }),
+    untrack: vi.fn((kind: "question" | "permission", requestId: string) => cards.delete(`${kind}:${requestId}`)),
+    list: vi.fn(() => Array.from(cards.values())),
+    close: vi.fn(() => cards.clear()),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -40,6 +101,7 @@ function makeDeps() {
       debug: vi.fn(),
     },
     seenInteractiveIds: mockSeenInteractiveIds as any,
+    interactiveCardRegistry: createMockInteractiveCardRegistry(),
     capturedListeners,
   }
   return deps
@@ -331,6 +393,43 @@ describe("SessionObserver", () => {
 
     observer.stop()
   })
+
+  it("tracks question cards sent from observer", async () => {
+    const deps = makeDeps()
+    ;(deps.feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      msg: "ok",
+      data: { message_id: "msg-question" },
+    })
+    const observer = createSessionObserver(deps)
+    observer.observe("ses-1", "chat-1")
+
+    const listener = deps.capturedListeners.get("ses-1")!
+    listener({
+      type: "question.asked",
+      properties: {
+        sessionID: "ses-1",
+        id: "q-observer",
+        questions: [
+          {
+            question: "Choose",
+            header: "Choice",
+            options: [{ label: "A", description: "Option A" }],
+          },
+        ],
+      },
+    })
+
+    await Promise.resolve()
+
+    expect(deps.interactiveCardRegistry?.list()).toEqual([
+      expect.objectContaining({
+        requestId: "q-observer",
+        kind: "question",
+        messageId: "msg-question",
+      }),
+    ])
+
+    observer.stop()
+  })
 })
-
-

@@ -3,6 +3,8 @@ import type { EventListenerMap } from "../utils/event-listeners.js"
 import { createMessageHandler, type HandlerDeps } from "./message-handler.js"
 import { EventProcessor } from "../streaming/event-processor.js"
 import { createMockLogger, createMockFeishuClient, waitFor } from "../__tests__/setup.js"
+import { createSessionObserver } from "../streaming/session-observer.js"
+import { ExpiringSet } from "../utils/expiring-set.js"
 
 const advanceTimers = async (ms: number) => {
   if (typeof vi.advanceTimersByTimeAsync === "function") {
@@ -415,6 +417,118 @@ describe("createMessageHandler", () => {
     )
     expect(deps.eventListeners.size).toBe(0)
 
+  })
+
+  it("suppresses SessionObserver forwarding while event-driven fallback owns the session", async () => {
+    mockFetchOk("")
+
+    const feishuClient = createMockFeishuClient()
+    ;(feishuClient.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const deps = makeDeps({ feishuClient })
+    const seenInteractiveIds = new ExpiringSet<string>(60_000, 60_000)
+    const observer = createSessionObserver({
+      feishuClient: { sendMessage: feishuClient.sendMessage },
+      eventProcessor: deps.eventProcessor,
+      addListener: (sessionId, fn) => {
+        const listeners = deps.eventListeners.get(sessionId)
+        if (listeners) listeners.add(fn)
+        else deps.eventListeners.set(sessionId, new Set([fn]))
+      },
+      removeListener: (sessionId, fn) => {
+        const listeners = deps.eventListeners.get(sessionId)
+        if (!listeners) return
+        listeners.delete(fn)
+        if (listeners.size === 0) deps.eventListeners.delete(sessionId)
+      },
+      logger: deps.logger,
+      seenInteractiveIds,
+    })
+    const busySpy = vi.spyOn(observer, "markSessionBusy")
+    const freeSpy = vi.spyOn(observer, "markSessionFree")
+
+    const { handleMessage: handler } = createMessageHandler({ ...deps, observer })
+    const handlerPromise = handler(makeEvent())
+
+    await waitFor(() => {
+      expect(deps.eventListeners.get("ses-1")?.size).toBe(3)
+    })
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "message.part.updated",
+      properties: {
+        part: { sessionID: "ses-1", messageID: "msg-1", type: "text", text: "Hello" },
+        delta: "Hello ",
+      },
+    }))
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "message.part.updated",
+      properties: {
+        part: { sessionID: "ses-1", messageID: "msg-1", type: "text", text: "Hello World" },
+        delta: "World",
+      },
+    }))
+
+    ;[...deps.eventListeners.get("ses-1")!].forEach(fn => fn({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    }))
+
+    await handlerPromise
+
+    expect(deps.progressTracker.updateWithResponse).toHaveBeenCalledWith(
+      "thinking-msg-1",
+      "Hello World",
+    )
+    expect(feishuClient.sendMessage).not.toHaveBeenCalled()
+    expect(busySpy).toHaveBeenCalledWith("ses-1")
+    expect(freeSpy).toHaveBeenCalledWith("ses-1")
+    observer.stop()
+    seenInteractiveIds.close()
+  })
+
+  it("marks observer busy/free when event-driven timeout falls back to sync", async () => {
+    vi.useFakeTimers()
+
+    const syncBody = JSON.stringify({
+      parts: [{ type: "text", text: "Sync response" }],
+    })
+    mockFetchOk(syncBody)
+    const observer = {
+      observe: vi.fn(),
+      markOwned: vi.fn(),
+      markSessionBusy: vi.fn(),
+      markSessionFree: vi.fn(),
+      getChatForSession: vi.fn(),
+      stop: vi.fn(),
+    }
+    const deps = makeDeps({ observer })
+    const { handleMessage: handler } = createMessageHandler(deps)
+
+    const handlerPromise = handler(makeEvent())
+
+    for (let i = 0; i < 20; i++) await advanceTimers(0)
+
+    await waitFor(() => {
+      expect(deps.eventListeners.get("ses-1")?.size).toBe(2)
+    })
+
+    expect(observer.markSessionBusy).toHaveBeenCalledWith("ses-1")
+
+    await advanceTimers(5 * 60 * 1000 + 100)
+
+    await handlerPromise
+
+    expect(deps.progressTracker.updateWithResponse).toHaveBeenCalledWith(
+      "thinking-msg-1",
+      "Sync response",
+    )
+    expect(observer.markSessionFree).toHaveBeenCalledWith("ses-1")
+    expect(observer.markSessionBusy.mock.invocationCallOrder[0]).toBeLessThan(
+      observer.markSessionFree.mock.invocationCallOrder[0],
+    )
+    expect(deps.eventListeners.size).toBe(0)
   })
 
   it("sync fallback handles empty response body", async () => {
@@ -1211,11 +1325,63 @@ describe("createMessageHandler — debounce race condition", () => {
     await p2
     dispose()
   })
+
+  it("debounced event-driven timeout marks observer busy/free around sync fallback", async () => {
+    vi.useFakeTimers()
+
+    const syncBody = JSON.stringify({
+      parts: [{ type: "text", text: "Sync response" }],
+    })
+    mockFetchOk(syncBody)
+
+    const observer = {
+      observe: vi.fn(),
+      markOwned: vi.fn(),
+      markSessionBusy: vi.fn(),
+      markSessionFree: vi.fn(),
+      getChatForSession: vi.fn(),
+      stop: vi.fn(),
+    }
+
+    const deps = makeDeps({ observer, debounceMs: 100 })
+    const { handleMessage: handler, dispose } = createMessageHandler(deps)
+
+    await handler(makeEvent({
+      event_id: "evt-img-1",
+      message_id: "msg-img-1",
+      message: { message_type: "image", content: JSON.stringify({ image_key: "img-1" }) },
+    }))
+
+    for (let i = 0; i < 20; i++) await advanceTimers(0)
+    await advanceTimers(100)
+
+    await waitFor(() => {
+      expect(deps.eventListeners.get("ses-1")?.size).toBe(2)
+    })
+
+    expect(observer.markSessionBusy).toHaveBeenCalledWith("ses-1")
+
+    await advanceTimers(5 * 60 * 1000 + 100)
+
+    await waitFor(() => {
+      expect(deps.progressTracker.updateWithResponse).toHaveBeenCalledWith(
+        "thinking-msg-1",
+        "Sync response",
+      )
+    })
+
+    expect(observer.markSessionFree).toHaveBeenCalledWith("ses-1")
+    expect(observer.markSessionBusy.mock.invocationCallOrder[0]).toBeLessThan(
+      observer.markSessionFree.mock.invocationCallOrder[0],
+    )
+    dispose()
+  })
 })
 
 describe("createMessageHandler — 404 session self-healing", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   afterEach(() => {
@@ -1331,6 +1497,7 @@ describe("createMessageHandler — 404 session self-healing", () => {
 describe("createMessageHandler — streaming 404 session self-healing", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   afterEach(() => {

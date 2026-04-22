@@ -9,12 +9,14 @@
 
 import type { Logger } from "../utils/logger.js"
 import type { FeishuCardAction } from "../types.js"
+import type { InteractiveCardRegistry } from "../feishu/interactive-card-registry.js"
 
 // ── Types ──
 
 export interface InteractiveHandlerDeps {
   serverUrl: string
   logger: Logger
+  interactiveCardRegistry?: InteractiveCardRegistry
 }
 
 // ── Factory ──
@@ -57,17 +59,21 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
     }
 
     try {
+      deps.interactiveCardRegistry?.markFeishuResolving("question", requestId)
       const resp = await fetch(`${serverUrl}/question/${requestId}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: parsedAnswers }),
       })
       if (!resp.ok) {
+        deps.interactiveCardRegistry?.clearFeishuResolving("question", requestId)
         logger.warn(`Question reply failed: ${resp.status} ${resp.statusText}`)
       } else {
+        deps.interactiveCardRegistry?.untrack("question", requestId)
         logger.info(`Question ${requestId} answered: ${parsedAnswers[0]?.[0] ?? ""}`)
       }
     } catch (err) {
+      deps.interactiveCardRegistry?.clearFeishuResolving("question", requestId)
       logger.warn(`Question reply request failed: ${err}`)
     }
   }
@@ -82,14 +88,17 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
     }
 
     try {
+      deps.interactiveCardRegistry?.markFeishuResolving("permission", requestId)
       const resp = await fetch(`${serverUrl}/permission/${requestId}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reply }),
       })
       if (!resp.ok) {
+        deps.interactiveCardRegistry?.clearFeishuResolving("permission", requestId)
         logger.warn(`Permission reply failed: ${resp.status} ${resp.statusText}`)
       } else {
+        deps.interactiveCardRegistry?.untrack("permission", requestId)
         const labelMap: Record<string, string> = {
           once: "Allowed (once)",
           always: "Always allowed",
@@ -98,6 +107,7 @@ export function createInteractiveHandler(deps: InteractiveHandlerDeps) {
         logger.info(`Permission ${requestId}: ${labelMap[reply] ?? reply}`)
       }
     } catch (err) {
+      deps.interactiveCardRegistry?.clearFeishuResolving("permission", requestId)
       logger.warn(`Permission reply request failed: ${err}`)
     }
   }

@@ -1,5 +1,65 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { createInteractivePoller } from "../interactive-poller.js"
+import { ExpiringSet } from "../../utils/expiring-set.js"
+import { interactiveCardKey } from "../../feishu/interactive-card-registry.js"
+
+function createMockInteractiveCardRegistry() {
+  const cards = new Map<string, {
+    requestId: string
+    kind: "question" | "permission"
+    chatId: string
+    messageId: string
+    trackedAt: number
+    state: "dispatching" | "sent" | "resolving_feishu"
+  }>()
+
+    return {
+      beginDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+        const key = `${kind}:${requestId}`
+        if (cards.has(key)) return false
+        cards.set(key, {
+          requestId,
+          kind,
+          chatId: "",
+          messageId: "",
+          trackedAt: Date.now(),
+          state: "dispatching",
+        })
+        return true
+      }),
+      failDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+        const key = `${kind}:${requestId}`
+        const current = cards.get(key)
+        if (!current || current.state !== "dispatching") return false
+        cards.delete(key)
+        return true
+      }),
+      track: vi.fn((card: {
+        requestId: string
+        kind: "question" | "permission"
+        chatId: string
+        messageId: string
+      }) => {
+        const key = `${card.kind}:${card.requestId}`
+        cards.set(key, { ...card, trackedAt: Date.now(), state: "sent" })
+      }),
+      markFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+        const key = `${kind}:${requestId}`
+        const current = cards.get(key)
+        if (!current || current.state !== "sent") return
+        cards.set(key, { ...current, state: "resolving_feishu" })
+      }),
+      clearFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+        const key = `${kind}:${requestId}`
+        const current = cards.get(key)
+        if (!current || current.state !== "resolving_feishu") return
+        cards.set(key, { ...current, state: "sent" })
+      }),
+      untrack: vi.fn((kind: "question" | "permission", requestId: string) => cards.delete(`${kind}:${requestId}`)),
+      list: vi.fn(() => Array.from(cards.values())),
+      close: vi.fn(() => cards.clear()),
+    }
+}
 
 const advanceTimers = async (ms: number) => {
   if (typeof vi.advanceTimersByTimeAsync === "function") {
@@ -24,7 +84,13 @@ function mockFetchPerUrl(
   questionResp: (() => Promise<unknown>) | Error,
   permissionResp: (() => Promise<unknown>) | Error,
 ) {
-  return vi.fn().mockImplementation(async (url: string) => {
+  const mock = vi.fn().mockImplementation(async (input: string | URL | Request) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url
+
     if (typeof url === "string" && url.includes("/question")) {
       if (questionResp instanceof Error) throw questionResp
       return questionResp()
@@ -34,6 +100,10 @@ function mockFetchPerUrl(
       return permissionResp()
     }
     return { ok: false, status: 404, json: () => Promise.resolve(null) }
+  })
+
+  return Object.assign(mock, {
+    preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch),
   })
 }
 
@@ -62,6 +132,7 @@ const SAMPLE_PERMISSION = {
 
 describe("interactive-poller", () => {
   let originalFetch: typeof globalThis.fetch
+  const createdSeenInteractiveIds: ExpiringSet<string>[] = []
 
   beforeEach(() => {
     originalFetch = globalThis.fetch
@@ -73,15 +144,29 @@ describe("interactive-poller", () => {
     globalThis.fetch = originalFetch
     vi.useRealTimers()
     vi.restoreAllMocks()
+    for (const seenSet of createdSeenInteractiveIds.splice(0)) {
+      seenSet.close()
+    }
   })
 
   function createDeps(overrides: Record<string, unknown> = {}) {
+    const seenInteractiveIds = new ExpiringSet<string>(30 * 60 * 1000, 2 * 60 * 1000)
+    createdSeenInteractiveIds.push(seenInteractiveIds)
+
     return {
       serverUrl: "http://test:4096",
-      feishuClient: { sendMessage: vi.fn().mockResolvedValue(undefined) },
+      feishuClient: {
+        sendMessage: vi.fn().mockResolvedValue({
+          code: 0,
+          msg: "ok",
+          data: { message_id: "msg_1" },
+        }),
+        updateMessage: vi.fn().mockResolvedValue({ code: 0, msg: "ok" }),
+      },
       logger: createMockLogger(),
       getChatForSession: vi.fn().mockReturnValue("chat_123"),
-      seenInteractiveIds: new Set<string>(),
+      seenInteractiveIds,
+      interactiveCardRegistry: createMockInteractiveCardRegistry(),
       ...overrides,
     }
   }
@@ -168,7 +253,7 @@ describe("interactive-poller", () => {
 
     it("deduplicates already-seen question IDs", async () => {
       const deps = createDeps()
-      deps.seenInteractiveIds.add("q_1")
+      deps.seenInteractiveIds.add(interactiveCardKey("question", "q_1"))
       globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
       const poller = createInteractivePoller(deps)
       poller.start()
@@ -279,7 +364,7 @@ describe("interactive-poller", () => {
 
     it("deduplicates already-seen permission IDs", async () => {
       const deps = createDeps()
-      deps.seenInteractiveIds.add("p_1")
+      deps.seenInteractiveIds.add(interactiveCardKey("permission", "p_1"))
       globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
       const poller = createInteractivePoller(deps)
       poller.start()
@@ -390,8 +475,8 @@ describe("interactive-poller", () => {
       poller.start()
       await advanceTimers(0)
 
-      expect(deps.seenInteractiveIds.has("q_1")).toBe(true)
-      expect(deps.seenInteractiveIds.has("p_1")).toBe(true)
+      expect(deps.seenInteractiveIds.has(interactiveCardKey("question", "q_1"))).toBe(true)
+      expect(deps.seenInteractiveIds.has(interactiveCardKey("permission", "p_1"))).toBe(true)
     })
 
     it("polls again after 3s interval", async () => {
@@ -421,6 +506,79 @@ describe("interactive-poller", () => {
       const callsAtStop = fetchMock.mock.calls.length
       await advanceTimers(10000)
       expect(fetchMock.mock.calls.length).toBe(callsAtStop)
+    })
+
+    it("updates tracked question cards once answered in TUI", async () => {
+      const deps = createDeps()
+      globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
+      const poller = createInteractivePoller(deps)
+
+      poller.start()
+      await advanceTimers(0)
+
+      globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([]))
+      await advanceTimers(3000)
+
+      expect(deps.feishuClient.updateMessage).toHaveBeenCalledWith(
+        "msg_1",
+        expect.any(String),
+      )
+      const updatedCard = JSON.parse(
+        (deps.feishuClient.updateMessage as ReturnType<typeof vi.fn>).mock.calls[0][1],
+      )
+      expect(updatedCard.header.title.content).toContain("Already Answered")
+      expect(updatedCard.elements[0].text.content).toContain("opencode TUI")
+    })
+
+    it("does not overwrite cards while a Feishu reply is resolving", async () => {
+      const deps = createDeps()
+      globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
+      const poller = createInteractivePoller(deps)
+
+      poller.start()
+      await advanceTimers(0)
+
+      deps.interactiveCardRegistry.markFeishuResolving("question", "q_1")
+      globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([]))
+      await advanceTimers(3000)
+
+      expect(deps.feishuClient.updateMessage).not.toHaveBeenCalled()
+    })
+
+    it("updates tracked permission cards once handled in TUI", async () => {
+      const deps = createDeps()
+      globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([SAMPLE_PERMISSION]))
+      const poller = createInteractivePoller(deps)
+
+      poller.start()
+      await advanceTimers(0)
+
+      globalThis.fetch = mockFetchPerUrl(okJson([]), okJson([]))
+      await advanceTimers(3000)
+
+      expect(deps.feishuClient.updateMessage).toHaveBeenCalledWith(
+        "msg_1",
+        expect.any(String),
+      )
+      const updatedCard = JSON.parse(
+        (deps.feishuClient.updateMessage as ReturnType<typeof vi.fn>).mock.calls[0][1],
+      )
+      expect(updatedCard.header.title.content).toContain("Resolved")
+      expect(updatedCard.elements[0].text.content).toContain("opencode TUI")
+    })
+
+    it("does not resolve question cards when the question endpoint failed", async () => {
+      const deps = createDeps()
+      globalThis.fetch = mockFetchPerUrl(okJson([SAMPLE_QUESTION]), okJson([]))
+      const poller = createInteractivePoller(deps)
+
+      poller.start()
+      await advanceTimers(0)
+
+      globalThis.fetch = mockFetchPerUrl(new Error("ECONNREFUSED"), okJson([]))
+      await advanceTimers(3000)
+
+      expect(deps.feishuClient.updateMessage).not.toHaveBeenCalled()
     })
   })
 })

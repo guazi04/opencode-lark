@@ -3,14 +3,31 @@ import { createInteractiveHandler } from "../interactive-handler.js"
 import { createMockLogger } from "../../__tests__/setup.js"
 import type { FeishuCardAction } from "../../types.js"
 
+function createMockInteractiveCardRegistry() {
+  return {
+    beginDispatch: vi.fn(),
+    failDispatch: vi.fn(),
+    track: vi.fn(),
+    markFeishuResolving: vi.fn(),
+    clearFeishuResolving: vi.fn(),
+    untrack: vi.fn(),
+    list: vi.fn().mockReturnValue([]),
+    close: vi.fn(),
+  }
+}
+
 describe("createInteractiveHandler", () => {
   let mockLogger: ReturnType<typeof createMockLogger>
   let mockFetch: ReturnType<typeof vi.fn>
+  let mockInteractiveCardRegistry: ReturnType<typeof createMockInteractiveCardRegistry>
 
   beforeEach(() => {
     mockLogger = createMockLogger()
     mockFetch = vi.fn()
-    globalThis.fetch = mockFetch
+    globalThis.fetch = Object.assign(mockFetch, {
+      preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch),
+    })
+    mockInteractiveCardRegistry = createMockInteractiveCardRegistry()
     vi.clearAllMocks()
   })
 
@@ -19,6 +36,7 @@ describe("createInteractiveHandler", () => {
       const handler = createInteractiveHandler({
         serverUrl: "http://test:4096",
         logger: mockLogger,
+        interactiveCardRegistry: mockInteractiveCardRegistry,
       })
 
       const answers = JSON.stringify([["first", "second"]])
@@ -55,12 +73,15 @@ describe("createInteractiveHandler", () => {
       expect(mockLogger.info).toHaveBeenCalledWith(
         "Question req-123 answered: first",
       )
+      expect(mockInteractiveCardRegistry.markFeishuResolving).toHaveBeenCalledWith("question", "req-123")
+      expect(mockInteractiveCardRegistry.untrack).toHaveBeenCalledWith("question", "req-123")
     })
 
     it("logs warn when requestId is missing", async () => {
       const handler = createInteractiveHandler({
         serverUrl: "http://test:4096",
         logger: mockLogger,
+        interactiveCardRegistry: mockInteractiveCardRegistry,
       })
 
       const action: FeishuCardAction = {
@@ -176,6 +197,7 @@ describe("createInteractiveHandler", () => {
       const handler = createInteractiveHandler({
         serverUrl: "http://test:4096",
         logger: mockLogger,
+        interactiveCardRegistry: mockInteractiveCardRegistry,
       })
 
       const action: FeishuCardAction = {
@@ -200,6 +222,7 @@ describe("createInteractiveHandler", () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         `Question reply request failed: ${error}`,
       )
+      expect(mockInteractiveCardRegistry.clearFeishuResolving).toHaveBeenCalledWith("question", "req-123")
     })
   })
 
@@ -208,6 +231,7 @@ describe("createInteractiveHandler", () => {
       const handler = createInteractiveHandler({
         serverUrl: "http://test:4096",
         logger: mockLogger,
+        interactiveCardRegistry: mockInteractiveCardRegistry,
       })
 
       const action: FeishuCardAction = {
@@ -243,6 +267,8 @@ describe("createInteractiveHandler", () => {
       expect(mockLogger.info).toHaveBeenCalledWith(
         "Permission req-456: Allowed (once)",
       )
+      expect(mockInteractiveCardRegistry.markFeishuResolving).toHaveBeenCalledWith("permission", "req-456")
+      expect(mockInteractiveCardRegistry.untrack).toHaveBeenCalledWith("permission", "req-456")
     })
 
     it("successfully replies permission 'always'", async () => {

@@ -1,10 +1,72 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { EventListenerMap } from "../utils/event-listeners.js"
 import { createStreamingBridge, type StreamingBridgeDeps } from "./streaming-integration.js"
 import { EventProcessor } from "../streaming/event-processor.js"
 import { createMockLogger, createMockFeishuClient, waitFor } from "../__tests__/setup.js"
 import type { CardKitClient } from "../feishu/cardkit-client.js"
 import type { SubAgentTracker } from "../streaming/subagent-tracker.js"
+import { ExpiringSet } from "../utils/expiring-set.js"
+
+function createMockInteractiveCardRegistry() {
+  const cards = new Map<string, {
+    requestId: string
+    kind: "question" | "permission"
+    chatId: string
+    messageId: string
+    trackedAt: number
+    state: "dispatching" | "sent" | "resolving_feishu"
+  }>()
+
+  return {
+    beginDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      if (cards.has(key)) return false
+      cards.set(key, {
+        requestId,
+        kind,
+        chatId: "",
+        messageId: "",
+        trackedAt: Date.now(),
+        state: "dispatching",
+      })
+      return true
+    }),
+    failDispatch: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "dispatching") return false
+      cards.delete(key)
+      return true
+    }),
+    track: vi.fn((card: {
+      requestId: string
+      kind: "question" | "permission"
+      chatId: string
+      messageId: string
+    }) => {
+      cards.set(`${card.kind}:${card.requestId}`, {
+        ...card,
+        trackedAt: Date.now(),
+        state: "sent",
+      })
+    }),
+    markFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "sent") return
+      cards.set(key, { ...current, state: "resolving_feishu" })
+    }),
+    clearFeishuResolving: vi.fn((kind: "question" | "permission", requestId: string) => {
+      const key = `${kind}:${requestId}`
+      const current = cards.get(key)
+      if (!current || current.state !== "resolving_feishu") return
+      cards.set(key, { ...current, state: "sent" })
+    }),
+    untrack: vi.fn((kind: "question" | "permission", requestId: string) => cards.delete(`${kind}:${requestId}`)),
+    list: vi.fn(() => Array.from(cards.values())),
+    close: vi.fn(() => cards.clear()),
+  }
+}
 
 function createMockCardKitClient() {
   return {
@@ -30,13 +92,19 @@ function createMockSubAgentTracker() {
   } as unknown as SubAgentTracker
 }
 
+const createdSeenInteractiveIds: ExpiringSet<string>[] = []
+
 function makeDeps(overrides: Partial<StreamingBridgeDeps> = {}): StreamingBridgeDeps {
+  const seenInteractiveIds = new ExpiringSet<string>(30 * 60 * 1000, 2 * 60 * 1000)
+  createdSeenInteractiveIds.push(seenInteractiveIds)
+
   return {
     cardkitClient: createMockCardKitClient(),
     feishuClient: createMockFeishuClient(),
     subAgentTracker: createMockSubAgentTracker(),
     logger: createMockLogger(),
-    seenInteractiveIds: new Set<string>(),
+    seenInteractiveIds,
+    interactiveCardRegistry: createMockInteractiveCardRegistry(),
     ...overrides,
   }
 }
@@ -52,6 +120,73 @@ describe("createStreamingBridge", () => {
     vi.restoreAllMocks()
     eventListeners = new Map()
     eventProcessor = new EventProcessor({ ownedSessions })
+  })
+
+  afterEach(() => {
+    for (const seenSet of createdSeenInteractiveIds.splice(0)) {
+      seenSet.close()
+    }
+  })
+
+  it("tracks question cards sent from the streaming bridge", async () => {
+    const deps = makeDeps({
+      feishuClient: {
+        ...createMockFeishuClient(),
+        sendMessage: vi.fn().mockResolvedValue({
+          code: 0,
+          msg: "ok",
+          data: { message_id: "msg-question" },
+        }),
+        replyMessage: vi.fn().mockResolvedValue({ code: 0 }),
+      },
+    })
+    const bridge = createStreamingBridge(deps)
+
+    const handlePromise = bridge.handleMessage(
+      "chat-1",
+      "ses-1",
+      eventListeners,
+      eventProcessor,
+      mockSendMessage,
+      vi.fn(),
+      "msg_original",
+      null,
+    )
+
+    await waitFor(() => {
+      expect(eventListeners.size).toBe(1)
+    })
+
+    const listener = [...eventListeners.get("ses-1")!][0]!
+    listener({
+      type: "question.asked",
+      properties: {
+        sessionID: "ses-1",
+        id: "q-bridge",
+        questions: [
+          {
+            question: "Choose",
+            header: "Choice",
+            options: [{ label: "A", description: "Option A" }],
+          },
+        ],
+      },
+    })
+    await Promise.resolve()
+
+    expect(deps.interactiveCardRegistry?.list()).toEqual([
+      expect.objectContaining({
+        requestId: "q-bridge",
+        kind: "question",
+        messageId: "msg-question",
+      }),
+    ])
+
+    listener({
+      type: "session.status",
+      properties: { sessionID: "ses-1", status: { type: "idle" } },
+    })
+    await handlePromise
   })
 
   it("creates a streaming card and registers listener", async () => {
@@ -83,10 +218,12 @@ describe("createStreamingBridge", () => {
       expect(eventListeners.size).toBe(1)
     })
 
-    ;[...eventListeners.get("ses-1")!].forEach(fn => fn({
-      type: "session.status",
-      properties: { sessionID: "ses-1", status: { type: "idle" } },
-    }))
+    ;[...eventListeners.get("ses-1")!].forEach((fn) => {
+      fn({
+        type: "session.status",
+        properties: { sessionID: "ses-1", status: { type: "idle" } },
+      })
+    })
 
     await handlePromise
 
@@ -316,10 +453,12 @@ describe("createStreamingBridge", () => {
       expect(eventListeners.size).toBe(1)
     })
 
-    ;[...eventListeners.get("ses-1")!].forEach(fn => fn({
-      type: "session.status",
-      properties: { sessionID: "ses-1", status: { type: "idle" } },
-    }))
+    ;[...eventListeners.get("ses-1")!].forEach((fn) => {
+      fn({
+        type: "session.status",
+        properties: { sessionID: "ses-1", status: { type: "idle" } },
+      })
+    })
 
     await handlePromise
 

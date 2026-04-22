@@ -38,6 +38,7 @@ import { ExpiringSet } from "./utils/expiring-set.js"
 import { createSubAgentCardHandler } from "./streaming/subagent-card.js"
 import { createInteractiveHandler } from "./handler/interactive-handler.js"
 import { createInteractivePoller } from "./handler/interactive-poller.js"
+import { createInteractiveCardRegistry } from "./feishu/interactive-card-registry.js"
 import { createFeishuGateway } from "./feishu/webhook-server.js"
 import { FeishuPlugin } from "./channel/feishu/feishu-plugin.js"
 import { ChannelManager } from "./channel/manager.js"
@@ -172,6 +173,7 @@ async function main(): Promise<void> {
   const ownedSessions = new Set<string>()
   const eventListeners: EventListenerMap = new Map()
   const seenInteractiveIds = new ExpiringSet<string>(30 * 60 * 1000, 2 * 60 * 1000)
+  const interactiveCardRegistry = createInteractiveCardRegistry()
 
   const eventProcessor = new EventProcessor({ ownedSessions, logger })
 
@@ -188,6 +190,7 @@ async function main(): Promise<void> {
     subAgentTracker,
     logger,
     seenInteractiveIds,
+    interactiveCardRegistry,
     outboundMedia,
   })
 
@@ -198,6 +201,7 @@ async function main(): Promise<void> {
     removeListener: (sessionId, fn) => removeListener(eventListeners, sessionId, fn),
     logger,
     seenInteractiveIds,
+    interactiveCardRegistry,
   })
 
 
@@ -236,6 +240,7 @@ async function main(): Promise<void> {
   const interactiveHandler = createInteractiveHandler({
     serverUrl,
     logger,
+    interactiveCardRegistry,
   })
 
   const interactivePoller = createInteractivePoller({
@@ -244,6 +249,7 @@ async function main(): Promise<void> {
     logger,
     getChatForSession: (sessionId) => observer.getChatForSession(sessionId),
     seenInteractiveIds,
+    interactiveCardRegistry,
   })
   interactivePoller.start()
 
@@ -398,6 +404,7 @@ async function main(): Promise<void> {
       observer.stop()
       disposeDebouncer()
       subAgentTracker.close()
+      interactiveCardRegistry.close()
       seenInteractiveIds.close()
       dedup.close()
       db.close()

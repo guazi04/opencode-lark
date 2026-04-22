@@ -10,6 +10,11 @@ import { addListener, removeListener } from "../utils/event-listeners.js"
 import { StreamingCardSession } from "../streaming/streaming-card.js"
 import type { OutboundMediaHandler } from "./outbound-media.js"
 import type { ExpiringSet } from "../utils/expiring-set.js"
+import type { InteractiveCardRegistry } from "../feishu/interactive-card-registry.js"
+import {
+  extractFeishuMessageId,
+  interactiveCardKey,
+} from "../feishu/interactive-card-registry.js"
 
 // ── Types ──
 
@@ -19,6 +24,7 @@ export interface StreamingBridgeDeps {
   subAgentTracker: SubAgentTracker
   logger: Logger
   seenInteractiveIds: ExpiringSet<string>
+  interactiveCardRegistry?: InteractiveCardRegistry
   outboundMedia?: OutboundMediaHandler
 }
 
@@ -156,28 +162,62 @@ export function createStreamingBridge(
             }
 
             case "QuestionAsked": {
-              if (seenInteractiveIds.has(action.requestId)) break
-              seenInteractiveIds.add(action.requestId)
+              const cardKey = interactiveCardKey("question", action.requestId)
+              if (seenInteractiveIds.has(cardKey)) break
+              if (deps.interactiveCardRegistry && !deps.interactiveCardRegistry.beginDispatch("question", action.requestId)) {
+                break
+              }
               logger.info(`Question event received in bridge for session ${sessionId}, requestId=${action.requestId}`)
               const questionCard = buildQuestionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
                 content: JSON.stringify(questionCard),
+              }).then((response) => {
+                const messageId = extractFeishuMessageId(response)
+                if (!messageId) {
+                  deps.interactiveCardRegistry?.failDispatch("question", action.requestId)
+                  return
+                }
+                seenInteractiveIds.add(cardKey)
+                deps.interactiveCardRegistry?.track({
+                  requestId: action.requestId,
+                  kind: "question",
+                  chatId,
+                  messageId,
+                })
               }).catch((err) => {
+                deps.interactiveCardRegistry?.failDispatch("question", action.requestId)
                 logger.warn(`Question card send failed: ${err}`)
               })
               break
             }
 
             case "PermissionRequested": {
-              if (seenInteractiveIds.has(action.requestId)) break
-              seenInteractiveIds.add(action.requestId)
+              const cardKey = interactiveCardKey("permission", action.requestId)
+              if (seenInteractiveIds.has(cardKey)) break
+              if (deps.interactiveCardRegistry && !deps.interactiveCardRegistry.beginDispatch("permission", action.requestId)) {
+                break
+              }
               logger.info(`Permission event received in bridge for session ${sessionId}, requestId=${action.requestId}`)
               const permissionCard = buildPermissionCard(action)
               feishuClient.sendMessage(chatId, {
                 msg_type: "interactive",
                 content: JSON.stringify(permissionCard),
+              }).then((response) => {
+                const messageId = extractFeishuMessageId(response)
+                if (!messageId) {
+                  deps.interactiveCardRegistry?.failDispatch("permission", action.requestId)
+                  return
+                }
+                seenInteractiveIds.add(cardKey)
+                deps.interactiveCardRegistry?.track({
+                  requestId: action.requestId,
+                  kind: "permission",
+                  chatId,
+                  messageId,
+                })
               }).catch((err) => {
+                deps.interactiveCardRegistry?.failDispatch("permission", action.requestId)
                 logger.warn(`Permission card send failed: ${err}`)
               })
               break

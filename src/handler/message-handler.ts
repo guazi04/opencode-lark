@@ -718,6 +718,8 @@ export function createMessageHandler(
       return
     }
 
+    if (deps.observer) deps.observer.markSessionBusy(sessionId)
+
     // Register ownership listener for event-driven path
     let ownershipListenerEd: ((event: unknown) => void) | null = null
     if (deps.observer) {
@@ -752,6 +754,7 @@ export function createMessageHandler(
       )
     } finally {
       if (ownershipListenerEd) removeListener(eventListeners, sessionId, ownershipListenerEd)
+      if (deps.observer) deps.observer.markSessionFree(sessionId)
     }
     logger.info(`Response sent for session ${sessionId}`)
   }
@@ -975,6 +978,8 @@ export function createMessageHandler(
       return
     }
 
+    if (deps.observer) deps.observer.markSessionBusy(sessionId)
+
     let ownershipListenerEd: ((ev: unknown) => void) | null = null
     if (deps.observer) {
       ownershipListenerEd = (rawEvent: unknown): void => {
@@ -995,6 +1000,7 @@ export function createMessageHandler(
       await handleSyncFallback(rawText, sessionId, mergedText, event, thinkingMessageId)
     } finally {
       if (ownershipListenerEd) removeListener(eventListeners, sessionId, ownershipListenerEd)
+      if (deps.observer) deps.observer.markSessionFree(sessionId)
     }
     logger.info(`Response sent for session ${sessionId} (debounced)`)
   }

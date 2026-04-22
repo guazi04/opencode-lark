@@ -8,6 +8,7 @@ import type { Server } from "node:http"
 import { createLogger } from "../utils/logger.js"
 import { MessageDedup } from "./message-dedup.js"
 import type { FeishuMessageEvent, FeishuCardAction } from "../types.js"
+import { buildInteractiveCallbackResponse } from "./interactive-card-response.js"
 
 const logger = createLogger("feishu-webhook")
 
@@ -114,14 +115,14 @@ export async function createFeishuGateway(
       return
     }
 
-    res.status(200).json({ code: 0 })
-
     const action: FeishuCardAction = {
       action: body["action"] as FeishuCardAction["action"],
       open_message_id: body["open_message_id"] as string,
       open_chat_id: body["open_chat_id"] as string,
       operator: body["operator"] as { open_id: string },
     }
+
+    res.status(200).json(buildInteractiveCallbackResponse(action))
 
     onCardAction(action).catch((err) => {
       logger.error("Error processing card action:", err)
