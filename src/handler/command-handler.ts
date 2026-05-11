@@ -153,6 +153,13 @@ function buildHelpCard(): Record<string, unknown> {
 
 export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
   const { serverUrl, sessionManager, feishuClient, logger } = deps
+  const serverPassword = deps.serverPassword
+
+  const authHeaders: Record<string, string> = {}
+  if (serverPassword) {
+    const encoded = Buffer.from(`opencode:${serverPassword}`).toString("base64")
+    authHeaders["Authorization"] = `Basic ${encoded}`
+  }
 
   async function replyText(
     _chatId: string,
@@ -216,12 +223,16 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     chatId: string,
     messageId: string,
   ): Promise<void> {
-    const resp = await fetch(`${serverUrl}/session`)
+    const resp = await fetch(`${serverUrl}/session`, { headers: authHeaders })
     if (!resp.ok) {
       throw new Error(`List sessions failed: HTTP ${resp.status}`)
     }
 
     let sessions = (await resp.json()) as Session[]
+
+    // Filter out subagent sessions
+    sessions = sessions.filter((s) => !s.title?.toLowerCase().includes("subagent"))
+
     if (sessions.length === 0) {
       await replyText(chatId, messageId, "暂无会话。")
       return
@@ -259,21 +270,22 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     messageId: string,
     targetSessionId: string,
   ): Promise<void> {
-    // Validate session exists
-    const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`)
+    const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`, { headers: authHeaders })
     if (!checkResp.ok) {
       await replyText(chatId, messageId, "会话不存在。")
       return
     }
 
-    // Unbind current mapping if exists
+    const session = (await checkResp.json()) as Session
+    const sessionTitle = session.title || targetSessionId
+    const sessionDir = session.directory ? ` @ ${session.directory}` : ""
+
     sessionManager.deleteMapping(feishuKey)
 
-    // Set new mapping
     const success = sessionManager.setMapping(feishuKey, targetSessionId)
     if (success) {
       logger.info(`/connect: bound ${feishuKey} to session ${targetSessionId}`)
-      await replyText(chatId, messageId, `已连接到会话: ${targetSessionId}`)
+      await replyText(chatId, messageId, `已连接到会话: ${sessionTitle}${sessionDir} (${targetSessionId})`)
     } else {
       throw new Error("Failed to set session mapping")
     }
