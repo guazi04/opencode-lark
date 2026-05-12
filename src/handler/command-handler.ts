@@ -33,6 +33,7 @@ interface Session {
   title?: string
   time?: { created: number; updated: number }
   summary?: { additions: number; deletions: number; files: number }
+  directory?: string
 }
 
 // ── Card builders ──
@@ -153,13 +154,6 @@ function buildHelpCard(): Record<string, unknown> {
 
 export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
   const { serverUrl, sessionManager, feishuClient, logger } = deps
-  const serverPassword = deps.serverPassword
-
-  const authHeaders: Record<string, string> = {}
-  if (serverPassword) {
-    const encoded = Buffer.from(`opencode:${serverPassword}`).toString("base64")
-    authHeaders["Authorization"] = `Basic ${encoded}`
-  }
 
   async function replyText(
     _chatId: string,
@@ -223,7 +217,7 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     chatId: string,
     messageId: string,
   ): Promise<void> {
-    const resp = await fetch(`${serverUrl}/session`, { headers: authHeaders })
+    const resp = await fetch(`${serverUrl}/session`)
     if (!resp.ok) {
       throw new Error(`List sessions failed: HTTP ${resp.status}`)
     }
@@ -270,7 +264,7 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     messageId: string,
     targetSessionId: string,
   ): Promise<void> {
-    const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`, { headers: authHeaders })
+    const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`)
     if (!checkResp.ok) {
       await replyText(chatId, messageId, "会话不存在。")
       return

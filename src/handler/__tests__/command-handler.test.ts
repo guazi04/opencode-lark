@@ -45,7 +45,6 @@ describe("createCommandHandler", () => {
   function createHandler(sm?: SessionManager) {
     return createCommandHandler({
       serverUrl: "http://test:4096",
-      serverPassword: "test-password",
       sessionManager: sm ?? mockSessionManager,
       feishuClient: mockFeishuClient,
       logger: mockLogger,
@@ -163,7 +162,6 @@ describe("createCommandHandler", () => {
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledWith(
         "http://test:4096/session",
-        expect.objectContaining({ headers: expect.any(Object) }),
       )
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "interactive",
@@ -228,7 +226,6 @@ describe("createCommandHandler", () => {
       expect(mockFetch).toHaveBeenNthCalledWith(
         1,
         "http://test:4096/session/ses-456",
-        expect.objectContaining({ headers: expect.any(Object) }),
       )
       expect(mockSessionManager.deleteMapping).toHaveBeenCalledWith("chat-1")
       expect(mockSessionManager.setMapping).toHaveBeenCalledWith("chat-1", "ses-456")
