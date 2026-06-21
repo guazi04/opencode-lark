@@ -160,7 +160,9 @@ describe("createCommandHandler", () => {
       const result = await handler("chat-1", "chat-1", "msg-1", "/sessions")
 
       expect(result).toBe(true)
-      expect(mockFetch).toHaveBeenCalledWith("http://test:4096/session")
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://test:4096/session",
+      )
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "interactive",
         content: expect.any(String),
@@ -210,7 +212,10 @@ describe("createCommandHandler", () => {
   describe("/connect", () => {
     it("connects to a valid session", async () => {
       mockFetch
-        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: "ses-456", title: "测试会话", directory: "/home/user/project" }),
+        })
         .mockResolvedValueOnce({ ok: true })
       mockFeishuClient.replyMessage = vi.fn().mockResolvedValue({ code: 0, msg: "ok" })
 
@@ -218,15 +223,15 @@ describe("createCommandHandler", () => {
       const result = await handler("chat-1", "chat-1", "msg-1", "/connect ses-456")
 
       expect(result).toBe(true)
-      // First fetch: validate session exists
-      expect(mockFetch).toHaveBeenNthCalledWith(1, "http://test:4096/session/ses-456")
-      // deleteMapping called
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        "http://test:4096/session/ses-456",
+      )
       expect(mockSessionManager.deleteMapping).toHaveBeenCalledWith("chat-1")
-      // setMapping called
       expect(mockSessionManager.setMapping).toHaveBeenCalledWith("chat-1", "ses-456")
       expect(mockFeishuClient.replyMessage).toHaveBeenCalledWith("msg-1", {
         msg_type: "text",
-        content: JSON.stringify({ text: "已连接到会话: ses-456" }),
+        content: JSON.stringify({ text: "已连接到会话: 测试会话 @ /home/user/project (ses-456)" }),
       })
     })
 

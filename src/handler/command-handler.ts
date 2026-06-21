@@ -33,6 +33,7 @@ interface Session {
   title?: string
   time?: { created: number; updated: number }
   summary?: { additions: number; deletions: number; files: number }
+  directory?: string
 }
 
 // ── Card builders ──
@@ -222,6 +223,10 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     }
 
     let sessions = (await resp.json()) as Session[]
+
+    // Filter out subagent sessions
+    sessions = sessions.filter((s) => !s.title?.toLowerCase().includes("subagent"))
+
     if (sessions.length === 0) {
       await replyText(chatId, messageId, "暂无会话。")
       return
@@ -259,21 +264,22 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
     messageId: string,
     targetSessionId: string,
   ): Promise<void> {
-    // Validate session exists
     const checkResp = await fetch(`${serverUrl}/session/${targetSessionId}`)
     if (!checkResp.ok) {
       await replyText(chatId, messageId, "会话不存在。")
       return
     }
 
-    // Unbind current mapping if exists
+    const session = (await checkResp.json()) as Session
+    const sessionTitle = session.title || targetSessionId
+    const sessionDir = session.directory ? ` @ ${session.directory}` : ""
+
     sessionManager.deleteMapping(feishuKey)
 
-    // Set new mapping
     const success = sessionManager.setMapping(feishuKey, targetSessionId)
     if (success) {
       logger.info(`/connect: bound ${feishuKey} to session ${targetSessionId}`)
-      await replyText(chatId, messageId, `已连接到会话: ${targetSessionId}`)
+      await replyText(chatId, messageId, `已连接到会话: ${sessionTitle}${sessionDir} (${targetSessionId})`)
     } else {
       throw new Error("Failed to set session mapping")
     }
