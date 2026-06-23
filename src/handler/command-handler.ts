@@ -327,7 +327,35 @@ export function createCommandHandler(deps: CommandHandlerDeps): CommandHandler {
           await handleConnect(feishuKey, chatId, messageId, targetSessionId)
           return true
         }
+          
+        // 为了将会话和模型绑定，否则飞书无法在创建新会话后正常和OpenCode通信
+        // 飞书新会话操作第一步： / or /help or /new and /connect
+        // 第二步：/bindmodel ses_29aaaaaaaaaa omlx.server/qwen3.5-9b
+        case "/bindmodel": {
+          let targetSessionId = parts[1]
+          let modelId = parts[2]
+          if (!targetSessionId || !modelId) {
+            await replyText(chatId, messageId, "用法: /bindmodel {session_id} {model_id}")
+            return true
+          }
+          const stripQuotes = (s: string) => s.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1')
+          targetSessionId = stripQuotes(targetSessionId)
+          modelId = stripQuotes(modelId)
 
+          const { execSync } = await import('node:child_process')
+
+          const command = `opencode -s ${JSON.stringify(targetSessionId)} -m ${JSON.stringify(modelId)} run ${JSON.stringify("a")}`
+          logger.info(`Executing (sync): ${command}`)
+          execSync(command, {
+            timeout: 10000,
+            cwd: process.env.OPENCODE_CWD || process.cwd(),
+            env: process.env,
+            stdio: 'inherit',  // 让命令的输出实时显示在控制台（可选）
+          })
+          await replyText(chatId, messageId, `✅ 已绑定模型 ${modelId} 到会话 ${targetSessionId}`)
+          return true
+        }
+          
         case "/":
         case "/help":
           await handleHelp(chatId, messageId)
